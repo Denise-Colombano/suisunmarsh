@@ -1,0 +1,147 @@
+---
+title: "Ch1_Abun_Biom_Growth"
+author: "Denise Colombano"
+date: "February 8, 2017"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(ggthemes)
+
+chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abun_Biom_Growth.txt")
+View(chapter1)
+glimpse(chapter1)
+chapter1$id <- 1:5223
+str(chapter1)
+summary(chapter1)
+
+```
+
+```{r, create data frames}
+# create dataset with variables of interest
+
+#Use `select` & `filter`:
+
+ #- can select columns by names, attributes
+ #- filter by rows, can filter by values
+
+# Make a dataset using pipes (ctrl + shift + M) in magrittr
+
+chapter1 %>% 
+  select(Slough, YearMo, YrSlough, Mo, Yr, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, TowMin) %>% 
+  filter(Mo > 4) %>% 
+  group_by(YrSlough, Slough, Yr) %>% 
+  summarize(st0_cpue = sum(`ST_Age-0`/ TowMin), sb0_cpue = sum(`SB_Age-0`/ TowMin), tp0_cpue = sum(`TP_Age-0`/ TowMin)) %>% 
+  write.csv("~/GitHub/suisunmarsh/Ch1/abundance.csv", row.names=FALSE)
+
+abundance <- read_csv("~/GitHub/suisunmarsh/Ch1/abundance.csv")
+glimpse(abundance)
+View(abundance)
+```
+
+```{r, mean abundance}
+# Group by and Summarize
+
+mean_abundance <- abundance %>%
+  group_by(Yr) %>% 
+  summarize(st0_mean = mean(st0_cpue), sb0_mean = mean(sb0_cpue), tp0_mean = mean(tp0_cpue))
+View(mean_abundance)
+```
+
+```{r, join back with chapter1 dataframe}
+
+# Following this lesson:
+
+## **https://ismayc.github.io/moderndiver-book/5-manip.html#joining-data-frames**
+
+abundance_joined <- abundance %>%
+  inner_join(mean_abundance, by="Yr")
+```
+
+```{r, create new columns for pos/neg differences}
+abundance_differences <- abundance_joined %>% 
+  mutate(Splittail = st0_cpue - st0_mean, StripedBass = sb0_cpue - sb0_mean, TulePerch = tp0_cpue - tp0_mean) %>% #calculate differences
+  select(YrSlough, Slough, Yr, Splittail, StripedBass, TulePerch) %>% 
+  glimpse
+
+a <- abundance_differences # shorthand
+View(a)
+```
+
+```{r, convert dataframe to from wide to long format}
+
+# Following the R Cookbook:
+
+## *http://www.cookbook-r.com/Manipulating_data/Converting_data_between_wide_and_long_format/**
+
+# Convert to factors first
+a$Slough <- as.factor(a$Slough)
+a$Yr <- as.factor(a$Yr)
+a$YrSlough <- as.factor(a$YrSlough)
+
+# tidyr gather
+a_gathered <- a %>% 
+  gather(Species, MeanDifference, Splittail:TulePerch)
+View(a_gathered)
+```
+
+## Plotting differences
+# First let's look at disproportionately greater than average cPUE among Slough & Yr for each species
+# Using the a_gathered dataframe, representing differences from the mean (0) for that year
+
+```{r, mean difference bar charts}
+a_gathered$pos <- a_gathered$MeanDifference >= 0
+bar <- ggplot(a_gathered, aes(x=Yr, y=MeanDifference, fill=pos, guide=FALSE)) +
+    geom_bar(stat="identity", position="identity") +
+    scale_fill_pander() +
+    theme_pander()
+bar + facet_grid(Species ~ Slough) 
+```
+
+
+
+## Plotting Averages
+# Now let's look at mean cpue among Slough & Yr  for each speices using dot plots
+```{r, convert dataframe to from wide to long format}
+
+# Following the R Cookbook:
+
+## *http://www.cookbook-r.com/Manipulating_data/Converting_data_between_wide_and_long_format/**
+
+# Tidy data
+
+
+# Convert to factors first
+abundance$Slough <- as.factor(abundance$Slough)
+abundance$Yr <- as.factor(abundance$Yr)
+abundance$YrSlough <- as.factor(abundance$YrSlough)
+
+# tidyr gather
+abundance_gathered <- abundance %>% 
+  gather(Species, MeanCPUE, st0_cpue:tp0_cpue) 
+View(abundance_gathered)
+```
+
+
+```{r, cleveland dot plots for mean cpue}
+dot <- ggplot(abundance_gathered, aes(x=Yr, y=MeanCPUE)) +
+  geom_point(size=3, aes(color=Species)) +
+  scale_color_economist() +
+  theme_economist_white() +
+  theme(panel.grid.major.y = element_blank()) +
+  facet_grid(Slough ~ Yr)
+```
+
+```{r, bar charts fir mean cpue}
+bar <- ggplot(abundance_gathered, aes(x = Slough, y = MeanCPUE)) +
+  geom_bar(stat="identity") +
+  facet_grid(Species~Yr) +
+  scale_color_economist() +
+  theme_economist()
+bar + coord_flip()
+```
+
+
