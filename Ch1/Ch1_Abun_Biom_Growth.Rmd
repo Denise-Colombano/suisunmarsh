@@ -10,6 +10,7 @@ library(tidyverse)
 library(ggplot2)
 library(magrittr)
 library(ggthemes)
+library(viridis)
 
 chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abun_Biom_Growth.txt")
 View(chapter1)
@@ -88,28 +89,67 @@ a_gathered <- a %>%
 View(a_gathered)
 ```
 
-## Plotting differences
+## Plotting relative differences
 # First let's look at disproportionately greater than average cPUE among Slough & Yr for each species
 # Using the a_gathered dataframe, representing differences from the mean (0) for that year
 
 ```{r, mean difference bar charts}
 a_gathered$Above_Annual_Mean <- a_gathered$Relative_CPUE >= 0
 bar <- ggplot(a_gathered, aes(x=Yr, y=Relative_CPUE, fill=Above_Annual_Mean, guide=FALSE)) +
-    geom_bar(stat="identity", position="identity") +
-    scale_colour_economist() +
-    theme_economist_white()
+  geom_bar(stat="identity", position="identity") +
+  scale_colour_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  labs(y="Relative Average Catch Per Minute", x="", title="Young-of-Year Catch by Year & Slough")
 bar + facet_grid(Species ~ Slough) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=12), axis.title.x = element_text(size=12), axis.title.y = element_text(size=12),title = element_text(size=10)) # center title
+```
+
+# Then let's look at relative proportion CPUE
+# notice how the "disproportionate" differences aren't obvious in this plot because
+# it's not standardized by annual averages
+```{r, bar chart as % total annual catch}
+# summarize total annual catches
+abundance_annual <- abundance %>% 
+  select(Slough, Yr, st0_cpue, sb0_cpue, tp0_cpue) %>% 
+  group_by(Yr) %>% 
+  summarize(st0_annual = sum(st0_cpue), sb0_annual = sum(sb0_cpue), tp0_annual = sum(tp0_cpue)) %>% 
+  glimpse
+
+# inner join
+abundance_totals <- abundance %>%
+  inner_join(abundance_annual, by="Yr")
+View(abundance_totals)
+
+# create new variables (relative catch)
+abundance_totals$st0_perc <- (abundance_totals$st0_cpue/ abundance_totals$st0_annual)
+abundance_totals$sb0_perc <- (abundance_totals$sb0_cpue/ abundance_totals$sb0_annual)
+abundance_totals$tp0_perc <- (abundance_totals$tp0_cpue/ abundance_totals$tp0_annual)
+
+# Convert to factors first
+abundance_totals$Slough <- as.factor(abundance_totals$Slough)
+abundance_totals$Yr <- as.factor(abundance_totals$Yr)
+abundance_totals$YrSlough <- as.factor(abundance_totals$YrSlough)
+
+# tidyr gather
+abundance_totals_gathered <- abundance_totals %>% 
+  select(Slough, Yr, st0_perc, sb0_perc, tp0_perc) %>% 
+  gather(Species, Perc_Total_CPUE, st0_perc:tp0_perc)
+View(abundance_totals_gathered)
+
+# relative CPUE
+bar_rel <- ggplot(abundance_totals_gathered, aes(x=Yr, y=Perc_Total_CPUE)) +
+    geom_bar(stat="identity", position="identity") +
+    scale_colour_excel() +
+    theme_excel()
+bar_rel + facet_grid(Species ~ Slough) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
-```{r, mean difference bar charts as % total annual catch}
-
-```
-
-
 
 ## Plotting Averages
-# Now let's look at mean cpue among Slough & Yr  for each speices using dot plots
+# Now let's look at mean cpue among Slough & Yr  for each speicies using dot plots
 ```{r, convert dataframe to from wide to long format}
 
 # Following the R Cookbook:
@@ -131,16 +171,6 @@ View(abundance_gathered)
 ```
 
 
-```{r, cleveland dot plots for mean cpue}
-dot <- ggplot(abundance_gathered, aes(x=Yr, y=Mean_CPUE)) +
-  geom_point(size=3, aes(color=Species)) +
-  scale_color_economist() +
-  theme_economist_white() +
-  theme(panel.grid.major.y = element_blank()) +
-  facet_grid(Slough ~ Yr)
-dot
-```
-
 ```{r, bar charts for mean cpue}
 bar <- ggplot(abundance_gathered, aes(x = Yr, y = Mean_CPUE)) +
   geom_bar(stat="identity") +
@@ -149,5 +179,70 @@ bar <- ggplot(abundance_gathered, aes(x = Yr, y = Mean_CPUE)) +
   theme_economist_white()
 bar + theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ```
+
+## Plotting mean catch (no year) according to (1) slough and (2) habitat categories
+```{r}
+## Catch
+# Group by and Summarize
+mean_abundance_slough <- abundance %>%
+  group_by(Slough) %>% 
+  summarize(Splittail = mean(st0_cpue), StripedBass = mean(sb0_cpue), TulePerch = mean(tp0_cpue))
+View(mean_abundance_slough)
+
+# tidyr gather
+slough_gathered <- mean_abundance_slough %>% 
+  gather(Species, Mean_CPUE, Splittail:TulePerch) 
+View(slough_gathered)
+
+# stacked bar 1: abundance
+stacked_bar <- ggplot(slough_gathered, aes(x=reorder(Slough, Mean_CPUE), y=Mean_CPUE, fill=Species)) +
+  geom_bar(stat="identity", size=0.25) +
+  scale_fill_economist() +
+  theme_economist_white() +
+  coord_flip() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  labs(y="Average Catch Per Minute", x="", title="Young-of-Year by Slough")
+stacked_bar + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=12), axis.title.x = element_text(size=12), title = element_text(size=10)) # center title
+
+## Habitat
+
+habitat <- read_csv("~/GitHub/suisunmarsh/data/Suisun_Marsh_Habitat.csv")
+View(habitat)
+
+# Convert to factors first
+habitat$Slough <- as.factor(habitat$Slough)
+habitat$Habitat <- as.factor(habitat$Habitat)
+
+#habitats <- habitat %>%
+  #select(Slough, tidal, managed, upland, land) %>% 
+  #group_by(Slough) %>% 
+  #summarize(Tidal = tidal/land, Managed = managed/land, Upland = upland/land)
+
+habitat_gathered <- habitat %>% 
+  select(Habitat, Slough, tidal:channel) %>% 
+  gather(Habitats, Proportion, tidal:channel)
+View(habitat_gathered)
+
+habitat_gathered$levels <- factor(habitat_gathered$Slough)
+
+habitat_gathered$levels <- factor(habitat_gathered$levels, levels=c("Montezuma", "Boynton", "Cutoff", "Nurse", "Peytonia", "SuisunLower", "SuisunUpper", "Goodyear", "Spring Branch", "Denverton"))
+
+
+stacked_bar2 <- ggplot(habitat_gathered, aes(x=levels, y=Proportion, fill=Habitats, order=desc(levels))) +
+  geom_bar(stat="identity") +
+  scale_fill_pander() +
+  theme_economist_white() +
+  coord_flip() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  labs(y="Relative Proportion", x="Slough", title="Land Cover 200m Buffer")
+stacked_bar2 + facet_grid(.~Habitat)
+
+
+```
+  
+```{r}
+
+```
+
 
 
