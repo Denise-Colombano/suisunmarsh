@@ -10,7 +10,7 @@ library(tidyverse)
 library(ggplot2)
 library(magrittr)
 library(ggthemes)
-library(viridis)
+library(gcookbook)
 
 chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abun_Biom_Growth.txt")
 View(chapter1)
@@ -133,23 +133,28 @@ abundance_totals$Yr <- as.factor(abundance_totals$Yr)
 abundance_totals$YrSlough <- as.factor(abundance_totals$YrSlough)
 
 # tidyr gather
-abundance_totals_gathered <- abundance_totals %>% 
-  select(Slough, Yr, st0_perc, sb0_perc, tp0_perc) %>% 
-  gather(Species, Perc_Total_CPUE, st0_perc:tp0_perc)
-View(abundance_totals_gathered)
+abundance_totals_renamed <- rename(abundance_totals, Splittail=st0_cpue, StripedBass=sb0_cpue, TulePerch=tp0_cpue)
 
-# relative CPUE
-bar_rel <- ggplot(abundance_totals_gathered, aes(x=Yr, y=Perc_Total_CPUE)) +
-    geom_bar(stat="identity", position="identity") +
-    scale_colour_excel() +
-    theme_excel()
-bar_rel + facet_grid(Species ~ Slough) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+abundance_totals_gathered <- abundance_totals_renamed %>% 
+  select(Slough, Yr, Splittail, StripedBass, TulePerch) %>% 
+  gather(Species, CPUE, Splittail:TulePerch)
+View(abundance_totals_gathered)
+```
+
+```{r, mean YOY CPUE box plots}
+
+box <- ggplot(abundance_totals_gathered, aes(x=Slough, y=CPUE)) + 
+  geom_boxplot(outlier.size = 0.5) +
+  labs(y="Catch Per Minute", x="", title="Young-of-Year by Slough") +
+  scale_color_economist() +
+  scale_fill_economist()
+box + facet_grid(Species~.) + theme(plot.title = element_text(hjust = 0.5), title = element_text(size=12), axis.text.x = element_text(size=10), axis.title.y = element_text(size=12))
+
+?geom_boxplot
 ```
 
 
-## Plotting Averages
-# Now let's look at mean cpue among Slough & Yr  for each speicies using dot plots
+## Plotting Mean YOY CPUE
 ```{r, convert dataframe to from wide to long format}
 
 # Following the R Cookbook:
@@ -157,7 +162,6 @@ bar_rel + facet_grid(Species ~ Slough) +
 ## *http://www.cookbook-r.com/Manipulating_data/Converting_data_between_wide_and_long_format/**
 
 # Tidy data
-
 
 # Convert to factors first
 abundance$Slough <- as.factor(abundance$Slough)
@@ -171,7 +175,7 @@ View(abundance_gathered)
 ```
 
 
-```{r, bar charts for mean cpue}
+```{r, bar charts for mean YOY cpue}
 bar <- ggplot(abundance_gathered, aes(x = Yr, y = Mean_CPUE)) +
   geom_bar(stat="identity") +
   facet_grid(Species~Slough) +
@@ -180,8 +184,7 @@ bar <- ggplot(abundance_gathered, aes(x = Yr, y = Mean_CPUE)) +
 bar + theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
-## Plotting mean catch (no year) according to (1) slough and (2) habitat categories
-```{r}
+```{r, mean YOY CPUE stacked bar chart}
 ## Catch
 # Group by and Summarize
 mean_abundance_slough <- abundance %>%
@@ -201,13 +204,100 @@ stacked_bar <- ggplot(slough_gathered, aes(x=reorder(Slough, Mean_CPUE), y=Mean_
   theme_economist_white() +
   coord_flip() +
   guides(fill=guide_legend(reverse=TRUE)) +
-  labs(y="Average Catch Per Minute", x="", title="Young-of-Year by Slough")
+  labs(y="Average Catch Per Minute", x="", title="Young-of-Year Catch by Slough")
 stacked_bar + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=12), axis.title.x = element_text(size=12), title = element_text(size=10)) # center title
+```
 
+
+
+
+
+
+## Plotting total YOY CPUE
+
+```{r, total YOY CPUE stacked bar charts}
+## Catch
+# Group by and Summarize
+sum_abundance_slough <- abundance %>%
+  select(Slough, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, TowMin) %>% 
+  group_by(Slough) %>% 
+  summarize(Splittail = (sum(`ST_Age-0`)/ sum(TowMin)), StripedBass = (sum(`SB_Age-0`)/ sum(TowMin)), TulePerch = (sum(`TP_Age-0`)/ sum(TowMin)))
+View(sum_abundance_slough)
+
+# tidyr gather
+sum_slough_gathered <- sum_abundance_slough %>% 
+  gather(Species, Total_CPUE, Splittail:TulePerch) 
+View(sum_slough_gathered)
+
+# stacked bar 3: total abundance
+stacked_bar3 <- ggplot(sum_slough_gathered, aes(x=reorder(Slough, -Total_CPUE), y=Total_CPUE, fill=Species)) +
+  geom_bar(stat="identity", size=0.25) +
+  scale_fill_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  labs(y="Catch Per Minute", x="", title="Young-of-Year by Slough")
+stacked_bar3 + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=12), axis.title.x = element_text(size=12), axis.title.y = element_text(size=12),title = element_text(size=10)) # center title
+```
+
+```{r, age class abundances}
+ageclass_abundance <- abundance %>% 
+  select(Slough, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, `ST_Age-1`, `SB_Age-1`, `TP_Age-1+`, `ST_Age-2+`, `SB_Age-2+`, TowMin) %>% 
+  group_by(Slough) %>% 
+  summarize(ST_YOY=sum(`ST_Age-0`)/ sum(TowMin), SB_YOY=sum(`SB_Age-0`)/ sum(TowMin), TP_YOY=sum(`TP_Age-0`)/ sum(TowMin), ST_Older = sum(`ST_Age-1`+ `ST_Age-2+`)/ sum(TowMin), SB_Older=sum(`SB_Age-1`+ `SB_Age-2+`)/ sum(TowMin), TP_Older=sum(`TP_Age-1+`)/ sum(TowMin)) 
+glimpse(ageclass_abundance)
+summary(ageclass_abundance)
+
+# tidyr
+ageclass_abundance$Slough <- as.factor(ageclass_abundance$Slough)
+
+# tidyr gather
+ageclass_abundance_gathered <- ageclass_abundance %>% 
+  select(Slough, ST_YOY:TP_Older) %>% 
+  gather(`Species+Stage`, CPUE, ST_YOY:TP_Older)
+View(ageclass_abundance_gathered)
+
+stacked_bar4 <- ggplot(ageclass_abundance_gathered, aes(x=reorder(Slough, -CPUE), y=CPUE, fill=`Species+Stage`)) +
+  geom_bar(stat="identity", size=0.25) +
+  scale_fill_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  labs(y="Catch Per Minute", x="", title="Total Catch by Slough")
+stacked_bar4 + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
+```
+
+```{r, stacked area graph by Yr}
+ageclass_abundance_yr <- abundance %>% 
+  select(Yr, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, `ST_Age-1`, `SB_Age-1`, `TP_Age-1+`, `ST_Age-2+`, `SB_Age-2+`, TowMin) %>% 
+  group_by(Yr) %>% 
+  summarize(ST_YOY=sum(`ST_Age-0`)/ sum(TowMin), SB_YOY=sum(`SB_Age-0`)/ sum(TowMin), TP_YOY=sum(`TP_Age-0`)/ sum(TowMin), ST_Older = sum(`ST_Age-1`+ `ST_Age-2+`)/ sum(TowMin), SB_Older=sum(`SB_Age-1`+ `SB_Age-2+`)/ sum(TowMin), TP_Older=sum(`TP_Age-1+`)/ sum(TowMin)) 
+glimpse(ageclass_abundance_yr)
+summary(ageclass_abundance_yr)
+
+# tidyr
+ageclass_abundance_yr$Yr <- as.factor(ageclass_abundance_yr$Yr)
+
+# tidyr gather
+ageclass_abundance_gathered_yr <- ageclass_abundance_yr %>% 
+  select(Yr, ST_YOY:TP_Older) %>% 
+  gather(`Species+Stage`, CPUE, ST_YOY:TP_Older)
+View(ageclass_abundance_gathered_yr)
+glimpse(ageclass_abundance_gathered_yr)
+
+
+stacked_area <- ggplot(ageclass_abundance_gathered_yr, aes(x=Yr, y=CPUE, fill=`Species+Stage`)) +
+  geom_area() +
+  scale_fill_economist() +
+  theme_economist_white()
+stacked_area
+
+```
+
+
+```{r, habitat characteristics}
 ## Habitat
-
 habitat <- read_csv("~/GitHub/suisunmarsh/data/Suisun_Marsh_Habitat.csv")
 View(habitat)
+summary(habitat)
 
 # Convert to factors first
 habitat$Slough <- as.factor(habitat$Slough)
@@ -223,11 +313,12 @@ habitat_gathered <- habitat %>%
   gather(Habitats, Proportion, tidal:channel)
 View(habitat_gathered)
 
+# assign levels for sloughs in order to reorder them in the x-axis
 habitat_gathered$levels <- factor(habitat_gathered$Slough)
 
 habitat_gathered$levels <- factor(habitat_gathered$levels, levels=c("Montezuma", "Boynton", "Cutoff", "Nurse", "Peytonia", "SuisunLower", "SuisunUpper", "Goodyear", "Spring Branch", "Denverton"))
 
-
+# stacked bar plot, change to total CPUE, then make a box plot with mean and variance
 stacked_bar2 <- ggplot(habitat_gathered, aes(x=levels, y=Proportion, fill=Habitats, order=desc(levels))) +
   geom_bar(stat="identity") +
   scale_fill_pander() +
@@ -236,13 +327,6 @@ stacked_bar2 <- ggplot(habitat_gathered, aes(x=levels, y=Proportion, fill=Habita
   guides(fill=guide_legend(reverse=TRUE)) +
   labs(y="Relative Proportion", x="Slough", title="Land Cover 200m Buffer")
 stacked_bar2 + facet_grid(.~Habitat)
-
-
 ```
-  
-```{r}
-
-```
-
 
 
