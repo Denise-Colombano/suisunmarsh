@@ -1,0 +1,190 @@
+---
+title: "Ch1_Biomass_Estimates"
+author: "Denise Colombano"
+date: "March 4, 2017"
+output: html_document
+---
+
+```{r, import dataframe}
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(ggthemes)
+library(gcookbook)
+library(grid)
+library(plotrix)
+
+# read in csv file with abundance data for each age class (incl. NAs)
+chapter1_ab <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_AgeClass_Abun_Estimates.txt")
+View(chapter1_ab)
+glimpse(chapter1_ab)
+
+# read in csv file with length data (incl. NAs) in order to calculate biomass
+# which will then be joined to the abundance dataframe
+chapter1_lw <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_StandardLengths.txt")
+View(chapter1_lw)
+glimpse(chapter1_lw)
+summary(chapter1_lw)
+
+chapter1_lw$id <- 1:66973
+
+# filter year
+chapter1_ab %>% 
+  filter(Yr>=1995) %>% 
+  summary
+
+chapter1_lw <- chapter1_lw %>% 
+  filter(SampleYear>=1995)
+```
+
+```{r, add estimated lengths to unmeasured fish, in order to calculate biomass later}
+## CALCULATE Average SL at each YrMoSite
+mean_sl<- chapter1_lw %>% 
+  select(YrMoSite, YearMo, YrMoSpp, OrganismCode, AgeClass, StandardLength) %>% 
+  unite(YrMoSppAge, YrMoSpp, AgeClass, sep="_") %>% # create a new unique identifier
+  group_by(YrMoSppAge) %>% 
+  summarize(mean_sl=mean(StandardLength))
+View(mean_sl)
+```
+
+```{r, tidy data in chapter1_ab DF}
+# Convert to Long form DF
+
+
+# add new unique identifier to ABUNDANCE DF so can join average length for unmeasured fish per age class
+chapter1_ab <- chapter1_ab %>% unite(YrMoSppAge, YrMoSpp, AgeClass, sep="_")
+
+```
+
+
+```{r, biomass calculations, test}
+
+## Calculate biomass using two different methods and compare
+
+# strategy 1: STEP BY STEP EQUATIONS
+chapter1_ex <- chapter1_lw %>% 
+  select(YrMoSite, YearMo, StationCode, SampleYear, YrMoSpp, OrganismCode, Count, StandardLength, AgeClass) %>% 
+  filter(AgeClass=="Age-0" & OrganismCode=="SB") %>% 
+  mutate(sb0_g = StandardLength^3.25) %>% 
+  mutate(sb0_g = sb0_g*0.0034) %>% 
+  mutate(sb0_g = sb0_g *Count) %>% 
+  mutate(sb0_g = sb0_g /1000) 
+
+# strategy 2: SINGLE EQUATION
+chapter1_ex2 <- chapter1_lw %>% 
+  select(id, YrMoSite, YearMo, StationCode, SampleYear, YrMoSpp, OrganismCode, Count, StandardLength, AgeClass) %>% 
+  filter(AgeClass=="Age-0" & OrganismCode=="SB") %>% 
+  mutate(sb0_g = (((StandardLength^3.25)*0.0034)*Count)/1000)
+
+# strategy 3: SINGLE EQUATION
+chapter1_ex3 <- chapter1_lw %>% 
+  select(id, YrMoSite, YearMo, StationCode, SampleYear, YrMoSpp, OrganismCode, Count, StandardLength, AgeClass) %>% 
+  filter(AgeClass=="Age-0" & OrganismCode=="SB") %>% 
+  group_by(id) %>% 
+  mutate(sb0_g = ((StandardLength^3.25)*0.0034)*Count/1000)
+
+# Compare the dataframes = **THE SAME**
+View(chapter1_ex)
+View(chapter1_ex2)
+View(chapter1_ex3)
+
+# Compare the plots = **THE SAME**
+ex <- ggplot(chapter1_ex, aes(x=StandardLength, y=sb0_g)) + 
+  geom_point() 
+ex
+
+ex3 <- ggplot(chapter1_ex3, aes(x=StandardLength, y=sb0_g)) + 
+  geom_point() 
+ex3
+```
+
+```{r, biomass calculations, for real}
+
+## CALCULATIONS: Separate dataframes
+# Age-0 Striped Bass
+sb_biomass <- chapter1_lw %>% 
+  select(YrMoSite, YearMo, StationCode, SampleYear, YrMoSpp, OrganismCode, Count, StandardLength, AgeClass) %>% 
+  filter(OrganismCode=="SB") %>% 
+  mutate(sb0_g = ((StandardLength^3.25)*0.0034)*Count/1000)
+glimpse(sb_biomass)
+View(sb_biomass)
+
+# Age-0 Splittail
+st_biomass <- chapter1_lw %>% 
+  select(YrMoSite, YearMo, StationCode, SampleYear, YrMoSpp, OrganismCode, Count, StandardLength, AgeClass) %>% 
+  filter(OrganismCode=="ST") %>% 
+  mutate(st0_g = ((StandardLength^3.30)*0.0026)*Count/1000)
+glimpse(st_biomass)
+
+# Age-0 Tule Perch
+tp_biomass <- chapter1_lw %>% 
+  select(YrMoSite, YearMo, StationCode, SampleYear, YrMoSpp, OrganismCode, Count, StandardLength, AgeClass) %>% 
+  filter(OrganismCode=="TP") %>% 
+  mutate(tp0_g = ((StandardLength^2.96)*0.0289)*Count/1000)
+glimpse(tp_biomass)
+
+# Age-0 Starry Flounder
+sf_biomass <- chapter1_lw %>% 
+  select(YrMoSite, YearMo, StationCode, SampleYear, YrMoSpp, OrganismCode, Count, StandardLength, AgeClass) %>% 
+  filter(OrganismCode=="SF") %>% 
+  mutate(sf0_g = ((StandardLength^3.13)*0.0082)*Count/1000)
+glimpse(sf_biomass)
+
+## double check plots
+ggplot(sb_biomass, aes(x=StandardLength, y=sb0_g)) + 
+  geom_point()
+ggplot(st_biomass, aes(x=StandardLength, y=st0_g)) + 
+  geom_point()
+ggplot(tp_biomass, aes(x=StandardLength, y=tp0_g)) + 
+  geom_point()
+ggplot(sf_biomass, aes(x=StandardLength, y=sf0_g)) + 
+  geom_point()
+
+
+## CONVERT TO LONGFORM DF: Double check that each DF has 1:5223 rows to make sure zeros are present!
+# The joined biomass DF only has estimated biomass for measured fish; need to add plus-counted fish after.
+
+# striped bass
+sb_biomass_sum <- sb_biomass %>% 
+  select(YrMoSite:SampleYear, sb0_g) %>% 
+  group_by(YrMoSite) %>% 
+  summarize(sb0_b = sum(sb0_g))
+View(sb_biomass_sum)
+
+# splittail
+st_biomass_sum <- st_biomass %>% 
+  select(YrMoSite:SampleYear, st0_g) %>% 
+  group_by(YrMoSite) %>% 
+  summarize(st0_b = sum(st0_g))
+View(st_biomass_sum)
+
+# tule perch
+tp_biomass_sum <- tp_biomass %>% 
+  select(YrMoSite:SampleYear, tp0_g) %>% 
+  group_by(YrMoSite) %>% 
+  summarize(tp0_b = sum(tp0_g))
+View(tp_biomass_sum)
+
+# starry flounder
+sf_biomass_sum <- sf_biomass %>% 
+  select(YrMoSite:SampleYear, sf0_g) %>% 
+  group_by(YrMoSite) %>% 
+  summarize(sf0_b = sum(sf0_g))
+View(sf_biomass_sum)
+
+## INNER JOIN
+biomass_joined <- sb_biomass_sum %>%
+  inner_join(st_biomass_sum, by="YrMoSite")
+
+biomass_joined <- biomass_joined %>% 
+  inner_join(tp_biomass_sum, by="YrMoSite")
+
+biomass_joined <- biomass_joined %>% 
+  inner_join(sf_biomass_sum, by="YrMoSite")
+
+
+
+```
+
+
+
