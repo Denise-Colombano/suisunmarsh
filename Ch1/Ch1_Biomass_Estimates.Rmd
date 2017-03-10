@@ -13,6 +13,7 @@ library(ggthemes)
 library(gcookbook)
 library(grid)
 library(plotrix)
+library(plyr)
 
 # read in csv file with abundance data for each age class (incl. NAs)
 chapter1_ab <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_AgeClass_Abun_Estimates.txt")
@@ -26,8 +27,6 @@ View(chapter1_lw)
 glimpse(chapter1_lw)
 summary(chapter1_lw)
 
-chapter1_lw$id <- 1:66973
-
 # filter year
 chapter1_ab %>% 
   filter(Yr>=1995) %>% 
@@ -35,27 +34,11 @@ chapter1_ab %>%
 
 chapter1_lw <- chapter1_lw %>% 
   filter(SampleYear>=1995)
+
+chapter1_lw$id <- 1:66973
 ```
 
-```{r, add estimated lengths to unmeasured fish, in order to calculate biomass later}
-## CALCULATE Average SL at each YrMoSite
-mean_sl<- chapter1_lw %>% 
-  select(YrMoSite, YearMo, YrMoSpp, OrganismCode, AgeClass, StandardLength) %>% 
-  unite(YrMoSppAge, YrMoSpp, AgeClass, sep="_") %>% # create a new unique identifier
-  group_by(YrMoSppAge) %>% 
-  summarize(mean_sl=mean(StandardLength))
-View(mean_sl)
-```
-
-```{r, tidy data in chapter1_ab DF}
-# Convert to Long form DF
-
-
-# add new unique identifier to ABUNDANCE DF so can join average length for unmeasured fish per age class
-chapter1_ab <- chapter1_ab %>% unite(YrMoSppAge, YrMoSpp, AgeClass, sep="_")
-
-```
-
+STEP 1. Calculating biomass for measured fish
 
 ```{r, biomass calculations, test}
 
@@ -181,10 +164,104 @@ biomass_joined <- biomass_joined %>%
 
 biomass_joined <- biomass_joined %>% 
   inner_join(sf_biomass_sum, by="YrMoSite")
-
-
-
 ```
 
+
+STEP 2. Calculating estimated biomass for unmeasured fish
+
+```{r, add estimated lengths to unmeasured fish, in order to calculate biomass later}
+## CALCULATE Average SL at each YrMoSite
+mean_sl_age0<- chapter1_lw %>% 
+  select(YrMoSite, YearMo, YrMoSpp, OrganismCode, AgeClass, StandardLength) %>% 
+  #unite(YrMoSppAge, YrMoSpp, AgeClass, sep="_") %>% # create a new unique identifier
+  filter(AgeClass=="Age-0") %>% 
+  group_by(YrMoSpp) %>% 
+  summarize(mean_sl_age0=mean(StandardLength))
+head(mean_sl_age0)
+```
+
+```{r, tidy data in chapter1_ab DF}
+# Query unmeasured fish and their estimated age classes
+unmsr_age0 <- chapter1_ab %>% 
+  select(YrMoSite:YrMoSpp,OrganismCode, Unmsrd, `Est_Age-0`)
+head(unmsr_age0)
+
+# Inner join - add estimated mean length for age-0 fish at each year+mo combination
+unmsr_age0_length_joined <- unmsr_age0 %>% 
+  inner_join(mean_sl_age0, by="YrMoSpp")
+View(unmsr_age0_length_joined)
+```
+
+
+```{r}
+# Create a DF that has estimated biomass for each estimated length for unmeasured fish
+# Step 1. Create sub-DF with estimated biomass for each species
+
+# Unmeasured age-0 fish
+unmsr_age0_sb <- unmsr_age0_length_joined %>% 
+  filter(OrganismCode=="SB") %>% 
+  mutate(sb0_b_est = ((mean_sl_age0^3.25)*0.0034)*`Est_Age-0`/1000) %>% 
+  select(YrMoSite, sb0_b_est)
+View(unmsr_age0_sb)
+
+unmsr_age0_st <- unmsr_age0_length_joined %>% 
+  filter(OrganismCode=="ST") %>% 
+  mutate(st0_b_est = ((mean_sl_age0^3.30)*0.0026)*`Est_Age-0`/1000)%>% 
+  select(YrMoSite, st0_b_est)
+View(unmsr_age0_st)
+
+unmsr_age0_tp <- unmsr_age0_length_joined %>% 
+  filter(OrganismCode=="TP") %>% 
+  mutate(tp0_b_est = ((mean_sl_age0^2.96)*0.0289)*`Est_Age-0`/1000)%>% 
+  select(YrMoSite, tp0_b_est)
+View(unmsr_age0_tp)
+
+unmsr_age0_sf <- unmsr_age0_length_joined %>% 
+  filter(OrganismCode=="SF") %>% 
+  mutate(sf0_b_est = ((mean_sl_age0^3.13)*0.0082)*`Est_Age-0`/1000)%>% 
+  select(YrMoSite, sf0_b_est)
+View(unmsr_age0_sf)
+
+# Convert to longform DF
+
+unmsr_age0_weight <- unmsr_age0_sb %>% 
+  inner_join(unmsr_age0_st, by="YrMoSite")
+
+unmsr_age0_weight <- unmsr_age0_weight %>% 
+  inner_join(unmsr_age0_tp, by="YrMoSite")
+
+unmsr_age0_weight <- unmsr_age0_weight %>% 
+  inner_join(unmsr_age0_sf, by="YrMoSite")
+
+## JOIN WITH BIOMASS of measured fish
+# measured and unmeasured together
+biomass_all_joined <- biomass_joined %>% 
+  join(unmsr_age0_weight, by="YrMoSite", match="all") # use join from plyr to maintain 5223 rows in DF
+
+# calculate total biomass for age0 fish (both measured and unmeasured)
+biomass_all_sum <- biomass_all_joined %>% 
+  group_by(YrMoSite) %>% 
+  summarise(sb0_b_tot = sb0_b + sb0_b_est, st0_b_tot = st0_b + st0_b_est, tp0_b_tot = tp0_b + tp0_b_est, sf0_b_tot = sf0_b + sf0_b_est)
+
+# fill in NAs with zeroes
+biomass_all_sum[is.na(biomass_all_sum)] <- 0
+```
+
+
+STEP 3. ADD TO REGULAR DF
+```{r}
+chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abun_Biom_Growth.txt")
+View(chapter1)
+glimpse(chapter1)
+chapter1$id <- 1:5223
+str(chapter1)
+summary(chapter1)
+
+chapter1 %>% 
+  inner_join(biomass_all_sum, yr="YrMoSite") %>% 
+  write.csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_BiomassEstimates_Age0.csv", row.names=FALSE)
+
+chapter1_bio <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_BiomassEstimates_Age0.csv")
+```
 
 
