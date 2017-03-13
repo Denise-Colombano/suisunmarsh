@@ -1,0 +1,131 @@
+---
+title: "Ch1_Abundance_1995-2016_Merge"
+author: "Denise Colombano"
+date: "March 12, 2017"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(ggthemes)
+library(gcookbook)
+library(grid)
+library(plotrix)
+library(readr)
+
+# read in CSV file with 5223 rows
+chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abundance.txt")
+
+rawdata_2016 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_AgeClass_Abun_Raw_2016.csv")
+
+chapter1_lw_2016 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_StandardLengths_1995-2016.txt")
+chapter1_lw_2016 <- chapter1_lw_2016 %>% 
+  filter(SampleYear=="2016")
+```
+
+```{r, TOC}
+## Table of Contents
+
+# Objective: Import rawdata_2016, which is generated from MS Access and then Excel, to eventually append the "Chapter1" dataset.
+# STEP 1. 
+# - Create a dataframe with wide format of species, ageclass, sum of count for each YrMoSite
+
+```
+
+```{r, Step 1.}
+# create a subset for all future analysis in this exercise
+rawdata_subset <- rawdata_2016 %>% 
+  select(YearMo, StationCode, OrganismCode, StandardLength, AgeClass, Count) %>% 
+  unite(YrMoSite, c(YearMo,StationCode), sep="_", remove=FALSE)
+
+# create another template with YrMoSite - 253 from 2016
+surveys_2016 <- rawdata_subset %>% 
+  select(YrMoSite, YearMo, StationCode, Count) %>% 
+  group_by(YrMoSite, YearMo) %>% 
+  summarize(sum(Count)) %>% 
+  select(YrMoSite, YearMo)
+
+# query the number of rows that have unmeasured fish, for future estimation = 14 rows
+rawdata_unmsrd <- rawdata_subset %>% 
+  select(YrMoSite:OrganismCode, AgeClass, Count) %>% 
+  filter(is.na(AgeClass), Count>0) %>%
+  select(YrMoSite:OrganismCode, Count) 
+
+View(rawdata_unmsrd) 
+
+rawdata_msrd <- rawdata_subset %>% 
+  select(YrMoSite:OrganismCode, AgeClass, Count) %>% 
+  group_by(YrMoSite, OrganismCode, AgeClass) %>% 
+  summarize(Count = sum(Count))
+View(rawdata_msrd) 
+```
+
+```{r, sum of counts for measured fish in 2016}
+# striped bass
+sb_msrd <- rawdata_msrd %>% 
+  filter(OrganismCode=="SB", !is.na(AgeClass)) %>% 
+  spread(AgeClass, Count, fill=0, convert=FALSE) %>% 
+  rename(sb0=`Age-0`, sb1=`Age-1`, sb2=`Age-2+`) 
+
+# splittail
+st_msrd <- rawdata_msrd %>% 
+  filter(OrganismCode=="ST", !is.na(AgeClass)) %>% 
+  spread(AgeClass, Count, fill=0, convert=FALSE) %>% 
+  rename(st0=`Age-0`, st1=`Age-1`, st2=`Age-2+`)
+
+# tule perch
+# striped bass
+tp_msrd <- rawdata_msrd %>% 
+  filter(OrganismCode=="TP", !is.na(AgeClass)) %>% 
+  spread(AgeClass, Count, fill=0, convert=FALSE) %>% 
+  rename(tp0=`Age-0`, tp1=`Age-1+`)
+
+# striped bass
+sf_msrd <- rawdata_msrd %>% 
+  filter(OrganismCode=="SF", !is.na(AgeClass)) %>% 
+  spread(AgeClass, Count, fill=0, convert=FALSE) %>% 
+  rename(sf0=`Age-0`, sf1=`Age-1`)
+
+# join them back together
+sum_msrd <- surveys_2016 %>% 
+  full_join(sb_msrd, by="YrMoSite") %>% 
+  full_join(st_msrd, by="YrMoSite") %>% 
+  full_join(tp_msrd, by="YrMoSite") %>% 
+  full_join(sf_msrd, by="YrMoSite") %>% 
+  select(YrMoSite, YearMo, sb0, sb1, sb2, st0, st1, st2, tp0, tp1, sf0, sf1)
+
+sum_msrd[is.na(sum_msrd)] <- 0
+```
+
+```{r, calculate mean standard length for unmeasured estimates}
+# mean SL in 2016
+mean_sl_all<- chapter1_lw_2016 %>% 
+  select(YrMoSite, YearMo, YrMoSpp, OrganismCode, AgeClass, StandardLength) %>% 
+  filter(!is.na(AgeClass)) %>% 
+  group_by(YrMoSpp, YearMo, AgeClass) %>% 
+  summarize(mean_sl=mean(StandardLength))
+
+# calculate proportion of age classes for each age class by month
+ageclass_prop <- sum_msrd %>% 
+  select(YearMo, sb0:sf1) %>% 
+  group_by(YearMo) %>% 
+  summarize(sb0=sum(sb0), sb1=sum(sb1),sb2=sum(sb2), st0=sum(st0), st1=sum(st1), st2=sum(st2), tp0=sum(tp0), tp1=sum(tp1), sf0=sum(sf0), sf1=sum(sf1)) %>% 
+  mutate(sb_tot=sb0+sb1+sb2, st_tot=st0+st1+st2, tp_tot=tp0+tp1, sf_tot=sf0+sf1 ) %>% 
+  mutate(sb0_p=sb0/sb_tot, sb1_p=sb1/sb_tot, sb2_p=sb2/sb_tot, st0_p=st0/st_tot, st1_p=st1/st_tot, st2_p=st2/st_tot, tp0_p=tp0/tp_tot, tp1_p=tp1/tp_tot, sf0_p=sf0/sf_tot, sf1_p=sf1/sf_tot)
+
+ageclass_prop[is.na(ageclass_prop)] <- 0
+
+# join with s            
+sum_msrd_prop <- ageclass_prop %>% 
+  select(YearMo, sb0_p:sf1_p) %>% 
+  full_join(sum_msrd, by="YearMo")
+
+# now it's time to take the unmeasured counts and multiply by estimated proportions
+unmsrd_estimates <- rawdata_unmsrd %>% 
+  inner_join(sum_msrd_prop, by=c("YrMoSite", "OrganismCode")
+
+             ?
+```
+
