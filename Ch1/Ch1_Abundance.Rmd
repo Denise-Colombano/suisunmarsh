@@ -16,13 +16,16 @@ library(gcookbook)
 library(grid)
 library(plotrix)
 
-chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abundance.txt")
+chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_Abundance_1995-2016.txt")
 View(chapter1)
 glimpse(chapter1)
-chapter1$id <- 1:5223
+chapter1$id <- 1:5475
 str(chapter1)
 summary(chapter1)
 
+# create YrSlough column
+chapter1 <- chapter1 %>% 
+  unite(YrSlough, c(Yr,Slough), sep="_", remove=FALSE)
 ```
 
 ## Create DF and CSV file for months May through December 1995-2015.
@@ -42,20 +45,21 @@ chapter1<- chapter1 %>%
 
 # add in biomass calculations
 
-# create new dataframe
+# create new dataframe for YOY CPUE
 chapter1 %>% 
   select(Slough, YearMo, YrSlough, Mo, Yr, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, TowMin) %>% 
   filter(Mo > 4) %>% 
   group_by(YrSlough, Slough, Yr) %>% 
   summarize(st0_cpue = sum(`ST_Age-0`/ TowMin), sb0_cpue = sum(`SB_Age-0`/ TowMin), tp0_cpue = sum(`TP_Age-0`/ TowMin)) %>% 
-  write.csv("~/GitHub/suisunmarsh/Ch1/abundance.csv", row.names=FALSE)
+  write.csv("~/GitHub/suisunmarsh/Ch1/Data_output/Age0_CPUE_1995-2016.csv", row.names=FALSE)
 
-abundance <- read_csv("~/GitHub/suisunmarsh/Ch1/abundance.csv")
+abundance <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Age0_CPUE_1995-2016.csv")
 glimpse(abundance)
 View(abundance)
 ```
 
-## Plotting annual YOY abundance using relative differences and means
+
+## Plot annual YOY abundance using relative differences and means
 ```{r, mean abundance}
 ## Calculate mean abundance by year
 # Group by and Summarize
@@ -133,7 +137,7 @@ bar <- ggplot(a_gathered, aes(x=Yr, y=Relative_CPUE, fill=Above_Annual_Mean, gui
   labs(y="Catch Per Minute (Annual Mean=0)", x="", title="Relative Annual Catch of Young-of-Year")
 bar + facet_grid(Species ~ Slough, scales="free") +
   theme(axis.text.x = element_text(angle = -90, hjust = 0.5), axis.ticks = element_line(size = 0.5), axis.ticks.length = unit(0.25, "cm")) +
-  theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=14), axis.title.y = element_text(size=12), title = element_text(size=10), axis.line.y = element_line(size=0.5), strip.text = element_text(size=10))
+  theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=16), title = element_text(size=14), axis.line.y = element_line(size=0.5), strip.text = element_text(size=14))
         
         #strip.background = element_rect(colour="black", size=0.5)) 
 ```
@@ -182,7 +186,7 @@ box <- ggplot(abundance_totals_gathered, aes(x=Slough, y=CPUE, fill=Slough)) +
   theme_economist_white() +
   scale_fill_economist() +
   guides(fill=FALSE)
-box + facet_grid(Species~. , scales="free") + theme(plot.title = element_text(hjust = 0.5), title = element_text(size=12), axis.text.x = element_text(size=12), axis.title.y = element_text(size=14) )
+box + facet_grid(Species~. , scales="free") + theme(plot.title = element_text(hjust = 0.5), title = element_text(size=26), axis.text.x = element_text(size=16), axis.title.y = element_text(size=26), axis.text.y = element_text(size=22) )
 ```
 
 
@@ -210,10 +214,9 @@ View(abundance_gathered)
 ```{r, bar charts for mean YOY cpue}
 bar <- ggplot(abundance_gathered, aes(x = Yr, y = Mean_CPUE)) +
   geom_bar(stat="identity") +
-  facet_grid(Species~Slough) +
   scale_colour_economist() +
   theme_economist_white()
-bar + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+bar + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + facet_grid(Species~Slough, scales="free") 
 ```
 
 ```{r, mean YOY CPUE stacked bar chart}
@@ -245,7 +248,7 @@ stacked_bar + theme(plot.title = element_text(hjust = 0.5), legend.title = eleme
 ```{r, total YOY CPUE stacked bar charts}
 ## Catch
 # Group by and Summarize
-sum_abundance_slough <- abundance %>%
+sum_abundance_slough <- chapter1 %>%
   select(Slough, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, TowMin) %>% 
   group_by(Slough) %>% 
   summarize(Splittail = (sum(`ST_Age-0`)/ sum(TowMin)), StripedBass = (sum(`SB_Age-0`)/ sum(TowMin)), TulePerch = (sum(`TP_Age-0`)/ sum(TowMin)))
@@ -293,6 +296,8 @@ stacked_bar4 <- ggplot(ageclass_abundance_gathered, aes(x=reorder(Slough, -CPUE)
 stacked_bar4 + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
 ```
 
+## Stacked Area Plots
+# All Ages
 ```{r, stacked area graph by Yr}
 ageclass_abundance_yr <- chapter1 %>% 
   select(Yr, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, `ST_Age-1`, `SB_Age-1`, `TP_Age-1+`, `ST_Age-2+`, `SB_Age-2+`, TowMin) %>% 
@@ -311,7 +316,7 @@ ageclass_abundance_gathered_yr <- ageclass_abundance_yr %>%
 View(ageclass_abundance_gathered_yr)
 glimpse(ageclass_abundance_gathered_yr)
 
-# stacked area plot
+# stacked area plot all species
 stacked_area <- ggplot(ageclass_abundance_gathered_yr, aes(x=Yr, y=CPUE, fill=`Species+Stage`, group=`Species+Stage`)) +
   geom_area(stat="identity") +
   scale_fill_economist() +
@@ -321,6 +326,178 @@ stacked_area <- ggplot(ageclass_abundance_gathered_yr, aes(x=Yr, y=CPUE, fill=`S
   labs(y="Catch Per Minute", x="", title="Total Catch of Species & Life Stage by Year")
 stacked_area + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
 ```
+
+## SPLITTAIL
+```{r, stacked area plots for SPLITTAIL}
+## SPLITTAIL
+
+## YOY vs. OLDER
+ageclass_abundance_gathered_st <- ageclass_abundance_yr %>% 
+  select(Yr, ST_YOY, ST_Older) %>% 
+  gather(`Species+Stage`, CPUE, ST_YOY, ST_Older)
+
+# stacked area plot
+stacked_area <- ggplot(ageclass_abundance_gathered_st, aes(x=Yr, y=CPUE, fill=`Species+Stage`, group=`Species+Stage`)) +
+  geom_area(stat="identity") +
+  scale_fill_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  scale_x_discrete(breaks=c(1995, 2000, 2005, 2010, 2015)) +
+  labs(y="Catch Per Minute", x="", title="Total Catch of Species & Life Stage by Year")
+stacked_area + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
+
+## Age-0 VS. Age-1 VS. Age-2+
+ageclass_abundance_st <- chapter1 %>% 
+  select(Yr, `ST_Age-0`, `ST_Age-1`, `ST_Age-2+`, TowMin) %>% 
+  group_by(Yr) %>% 
+  summarize(`Age-0`=sum(`ST_Age-0`)/sum(TowMin), `Age-1` = sum(`ST_Age-1`)/ sum(TowMin),`Age-2+`=sum(`ST_Age-2+`)/ sum(TowMin) )
+
+# tidyr
+ageclass_abundance_st$Yr <- as.factor(ageclass_abundance_st$Yr)
+
+# tidyr gather
+ageclass_abundance_gathered_st <- ageclass_abundance_st %>% 
+  select(Yr, `Age-0`, `Age-1`, `Age-2+`) %>% 
+  gather(`Splittail+Stage`, CPUE, `Age-0`:`Age-2+`)
+
+ageclass_abundance_gathered_st$`Stage` <- factor(ageclass_abundance_gathered_st$`Splittail+Stage`, levels=c("Age-2+", "Age-1", "Age-0"))
+
+stacked_area <- ggplot(ageclass_abundance_gathered_st, aes(x=Yr, y=CPUE, fill=`Stage`, group=`Stage`)) +
+  geom_area(stat="identity") +
+  scale_fill_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  scale_x_discrete(breaks=c(1995, 2000, 2005, 2010, 2015)) +
+  labs(y="Catch Per Minute", x="", title="Sacramento Splittail CPUE")
+
+stacked_area + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
+
+```
+
+## STRIPED BASS
+```{r, stacked area plots for STRIPED BASS}
+## STRIPED BASS
+
+## YOY vs. OLDER
+ageclass_abundance_gathered_sb <- ageclass_abundance_yr %>% 
+  select(Yr, SB_YOY, SB_Older) %>% 
+  gather(`StripedBass+Stage`, CPUE, SB_YOY, SB_Older)
+
+# stacked area plot
+stacked_area <- ggplot(ageclass_abundance_gathered_sb, aes(x=Yr, y=CPUE, fill=`StripedBass+Stage`, group=`StripedBass+Stage`)) +
+  geom_area(stat="identity") +
+  scale_fill_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  scale_x_discrete(breaks=c(1995, 2000, 2005, 2010, 2015)) +
+  labs(y="Catch Per Minute", x="", title="Striped Bass CPUE")
+stacked_area + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
+
+
+## Age-0 VS. Age-1 VS. Age-2+
+ageclass_abundance_sb <- chapter1 %>% 
+  select(Yr, `SB_Age-0`, `SB_Age-1`, `SB_Age-2+`, TowMin) %>% 
+  group_by(Yr) %>% 
+  summarize(`Age-0`=sum(`SB_Age-0`)/sum(TowMin), `Age-1` = sum(`SB_Age-1`)/ sum(TowMin),`Age-2+`=sum(`SB_Age-2+`)/ sum(TowMin) )
+
+# tidyr
+ageclass_abundance_sb$Yr <- as.factor(ageclass_abundance_sb$Yr)
+
+# tidyr gather
+ageclass_abundance_gathered_sb <- ageclass_abundance_sb %>% 
+  select(Yr, `Age-0`, `Age-1`, `Age-2+`) %>% 
+  gather(`StripedBass+Stage`, CPUE, `Age-0`:`Age-2+`)
+
+ageclass_abundance_gathered_sb$`Stage` <- factor(ageclass_abundance_gathered_sb$`StripedBass+Stage`, levels=c("Age-2+", "Age-1", "Age-0"))
+
+stacked_area <- ggplot(ageclass_abundance_gathered_sb, aes(x=Yr, y=CPUE, fill=`Stage`, group=`Stage`)) +
+  geom_area(stat="identity") +
+  scale_fill_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  scale_x_discrete(breaks=c(1995, 2000, 2005, 2010, 2015)) +
+  labs(y="Catch Per Minute", x="", title="Striped Bass CPUE")
+
+stacked_area + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
+```
+
+## TULE PERCH
+```{r, stacked area plots for TULE PERCH}
+## TULE PERCH
+
+## YOY vs. OLDER
+ageclass_abundance_gathered_tp <- ageclass_abundance_yr %>% 
+  select(Yr, TP_YOY, TP_Older) %>% 
+  gather(`TulePerch+Stage`, CPUE, TP_YOY, TP_Older)
+
+# stacked area plot
+stacked_area <- ggplot(ageclass_abundance_gathered_sb, aes(x=Yr, y=CPUE, fill=`TulePerch+Stage`, group=`TulePerch+Stage`)) +
+  geom_area(stat="identity") +
+  scale_fill_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  scale_x_discrete(breaks=c(1995, 2000, 2005, 2010, 2015)) +
+  labs(y="Catch Per Minute", x="", title="Total Catch of Species & Life Stage by Year")
+stacked_area + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
+
+
+## Age-0 VS. Age-1+
+ageclass_abundance_tp <- chapter1 %>% 
+  select(Yr, `TP_Age-0`, `TP_Age-1+`, TowMin) %>% 
+  group_by(Yr) %>% 
+  summarize(`Age-0`=sum(`TP_Age-0`)/sum(TowMin), `Age-1+` = sum(`TP_Age-1+`)/ sum(TowMin) )
+
+# tidyr
+ageclass_abundance_tp$Yr <- as.factor(ageclass_abundance_tp$Yr)
+
+# tidyr gather
+ageclass_abundance_gathered_tp <- ageclass_abundance_tp %>% 
+  select(Yr, `Age-0`, `Age-1+`) %>% 
+  gather(`TulePerch+Stage`, CPUE, `Age-0`:`Age-1+`)
+
+ageclass_abundance_gathered_tp$`Stage` <- factor(ageclass_abundance_gathered_tp$`TulePerch+Stage`, levels=c( "Age-1+", "Age-0"))
+
+stacked_area <- ggplot(ageclass_abundance_gathered_tp, aes(x=Yr, y=CPUE, fill=`Stage`, group=`Stage`)) +
+  geom_area(stat="identity") +
+  scale_fill_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  scale_x_discrete(breaks=c(1995, 2000, 2005, 2010, 2015)) +
+  labs(y="Catch Per Minute", x="", title="Tule Perch CPUE")
+
+stacked_area + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
+```
+
+## YOY Only
+```{r}
+yoy_abundance_yr <- chapter1 %>% 
+  select(Yr, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, TowMin) %>% 
+  group_by(Yr) %>% 
+  summarize(Splittail=sum(`ST_Age-0`)/ sum(TowMin), StripedBass=sum(`SB_Age-0`)/ sum(TowMin), TulePerch=sum(`TP_Age-0`)/ sum(TowMin))
+glimpse(yoy_abundance_yr)
+summary(yoy_abundance_yr)
+
+# tidyr
+yoy_abundance_yr$Yr <- as.factor(yoy_abundance_yr$Yr)
+
+# tidyr gather
+yoy_abundance_gathered_yr <- yoy_abundance_yr %>% 
+  select(Yr, Splittail:TulePerch) %>% 
+  gather(Species, CPUE, Splittail:TulePerch)
+View(yoy_abundance_gathered_yr)
+glimpse(yoy_abundance_gathered_yr)
+
+# stacked area plot
+stacked_area <- ggplot(yoy_abundance_gathered_yr, aes(x=Yr, y=CPUE, fill=Species, group=Species)) +
+  geom_area(stat="identity") +
+  scale_fill_economist() +
+  theme_economist_white() +
+  guides(fill=guide_legend(reverse=TRUE)) +
+  scale_x_discrete(breaks=c(1995, 2000, 2005, 2010, 2015)) +
+  labs(y="Catch Per Minute", x="", title="Total Catch of Young-of-Year")
+stacked_area + theme(plot.title = element_text(hjust = 0.5), legend.title = element_text(face="italic", size=14), axis.title.y = element_text(size=14),title = element_text(size=10)) # center title
+```
+
 
 ## Abundance by habitat
 ```{r, habitat characteristics}
@@ -372,6 +549,9 @@ box2 + facet_grid(Habitat~.) + theme(plot.title = element_text(hjust = 0.5), tit
 
 # calculate mean CPUE and SE per slough
 # use plotrix pacakge to calculate SE
+chapter1 <- chapter1 %>% 
+  mutate(`ST0_CPUE`=`ST_Age-0`/TowMin, `SB0_CPUE`=`SB_Age-0`/TowMin, `TP0_CPUE`=`TP_Age-0`/TowMin)
+
 slough_cpue <- chapter1 %>% 
   select(Slough, `ST0_CPUE`, `SB0_CPUE`, `TP0_CPUE`) %>% 
   group_by(Slough) %>% 
@@ -406,11 +586,10 @@ bar2 + geom_errorbar(aes(ymin = CPUE_Mean - CPUE_SE, ymax = CPUE_Mean + CPUE_SE,
 # use plotrix pacakge to calculate SE
 annual_mean_cpue <- abundance %>% 
   group_by(Slough) %>% 
-  summarize(Splittail = mean(st0_cpue), StripedBass = mean(sb0_cpue), TulePerch = mean(tp0_cpue), Splittail_SE =std.error(st0_cpue,na.rm), StripedBass_SE =std.error(sb0_cpue,na.rm), TulePerch_SE =std.error(tp0_cpue,na.rm)) %>% 
-  write.csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Annual_Abun_Mean&SE_Age0.csv", row.names=FALSE)
+  summarize(Splittail = mean(st0_cpue), StripedBass = mean(sb0_cpue), TulePerch = mean(tp0_cpue), Splittail_SE =std.error(st0_cpue,na.rm), StripedBass_SE =std.error(sb0_cpue,na.rm), TulePerch_SE =std.error(tp0_cpue,na.rm)) #%>% 
+  #write.csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Annual_Abun_Mean&SE_Age0.csv", row.names=FALSE)
 
-
-# convert these to long format using gather and join
+# convert these to long format 
 slough_cpue_mean2 <- annual_mean_cpue %>% 
   select(Slough, Splittail:TulePerch) %>% 
   gather(Species, CPUE_Mean, Splittail:TulePerch) 
@@ -418,15 +597,25 @@ View(slough_cpue_mean2)
 
 slough_cpue_mean_se2 <- annual_mean_cpue %>% 
   select(Slough, Splittail_SE:TulePerch_SE) %>% 
-  gather(Species, CPUE_SE, Splittail_SE:TulePerch_SE) %>% 
-  inner_join(slough_cpue_mean2, by="Slough")
-View(slough_cpue_mean_se2)
+  rename(Splittail=Splittail_SE, StripedBass=StripedBass_SE, TulePerch=TulePerch_SE) %>% # same name for join
+  select(Slough, Splittail:TulePerch) %>% 
+  gather(Species, CPUE_SE, Splittail:TulePerch) 
+
+# join them back together
+slough_cpue_joined <- slough_cpue_mean2 %>% 
+  inner_join(slough_cpue_mean_se2, by=c("Slough", "Species"))
+View(slough_cpue_joined)
 
 # plot a bar chart with error bars
-bar3 <- ggplot(slough_cpue_mean_se2, aes(x=Slough, y=CPUE_Mean, fill=Slough)) +
-  geom_bar(stat="identity")+
-  theme_economist_white() +
-  scale_fill_economist()
-bar3 + geom_errorbar(aes(ymin = CPUE_Mean - CPUE_SE, ymax = CPUE_Mean + CPUE_SE, width = 0.5)) + facet_grid(Species.y~., scales = "free") 
+bar3 <- ggplot(slough_cpue_joined, aes(x=Slough, y=CPUE_Mean, fill=Slough)) +
+  geom_bar(stat="identity", position="dodge", colour="black") +
+  facet_grid(Species~., scales="free")+
+  theme_economist_white()+
+  scale_fill_economist(guide=FALSE) +
+  labs(y="Catch Per Minute", x="", title="Young-of-Year CPUE")
+
+bar3
+
+bar3 + geom_errorbar(aes(ymin = CPUE_Mean - CPUE_SE, ymax = CPUE_Mean + CPUE_SE), size=0.5, width = 0.25, position=position_dodge(0.9)) + facet_grid(Species~., scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), title = element_text(size=16))
 ```
 

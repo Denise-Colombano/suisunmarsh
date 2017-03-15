@@ -15,14 +15,24 @@ library(grid)
 library(plotrix)
 library(readr)
 
-# read in CSV file with 5223 rows
-chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abundance.txt")
+# read in CSV file with 5465 rows
+#chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abundance.txt")
 
-rawdata_2016 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_AgeClass_Abun_Raw_2016.csv")
+# read in CSV file with 57658 rows
+chapter1_lw <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_StandardLengths_1995-2016.txt")
+chapter1_lw <- chapter1_lw %>% 
+  unite(YrMoSite,c(YearMo,StationCode), sep="_", remove=FALSE) %>% 
+  filter(SampleYear>1994, MethodCode=="OTR") 
+chapter1_lw$YrMoSite <- as.factor(chapter1_lw$YrMoSite)
 
-chapter1_lw_2016 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_StandardLengths_1995-2016.txt")
-chapter1_lw_2016 <- chapter1_lw_2016 %>% 
-  filter(SampleYear=="2016")
+# same data, just 2016
+rawdata_2016 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_StandardLengths_1995-2016.txt")
+rawdata_2016 <- rawdata_2016 %>% 
+  unite(YrMoSite,c(YearMo,StationCode), sep="_", remove=FALSE) %>% 
+  unite(YrMoSpp,c(YearMo,OrganismCode), sep="_", remove=FALSE) %>% 
+  filter(SampleYear=="2016", MethodCode=="OTR") 
+rawdata_2016$YrMoSite <- as.factor(rawdata_2016$YrMoSite)
+
 ```
 
 ```{r, TOC}
@@ -101,31 +111,159 @@ sum_msrd[is.na(sum_msrd)] <- 0
 
 ```{r, calculate mean standard length for unmeasured estimates}
 # mean SL in 2016
-mean_sl_all<- chapter1_lw_2016 %>% 
+mean_sl_all<- rawdata_2016 %>% 
   select(YrMoSite, YearMo, YrMoSpp, OrganismCode, AgeClass, StandardLength) %>% 
   filter(!is.na(AgeClass)) %>% 
   group_by(YrMoSpp, YearMo, AgeClass) %>% 
-  summarize(mean_sl=mean(StandardLength))
+  summarize(mean_sl=mean(StandardLength)) 
 
-# calculate proportion of age classes for each age class by month
+# change this to a character to match it to unmeasured fish later
+mean_sl_all$YearMo <- as.character(mean_sl_all$YearMo)
+
+# calculate proportion of age classes for each age class+month
 ageclass_prop <- sum_msrd %>% 
   select(YearMo, sb0:sf1) %>% 
   group_by(YearMo) %>% 
-  summarize(sb0=sum(sb0), sb1=sum(sb1),sb2=sum(sb2), st0=sum(st0), st1=sum(st1), st2=sum(st2), tp0=sum(tp0), tp1=sum(tp1), sf0=sum(sf0), sf1=sum(sf1)) %>% 
+  summarize(sb0=sum(sb0), sb1=sum(sb1), sb2=sum(sb2), st0=sum(st0), st1=sum(st1), st2=sum(st2), tp0=sum(tp0), tp1=sum(tp1), sf0=sum(sf0), sf1=sum(sf1)) %>% 
   mutate(sb_tot=sb0+sb1+sb2, st_tot=st0+st1+st2, tp_tot=tp0+tp1, sf_tot=sf0+sf1 ) %>% 
   mutate(sb0_p=sb0/sb_tot, sb1_p=sb1/sb_tot, sb2_p=sb2/sb_tot, st0_p=st0/st_tot, st1_p=st1/st_tot, st2_p=st2/st_tot, tp0_p=tp0/tp_tot, tp1_p=tp1/tp_tot, sf0_p=sf0/sf_tot, sf1_p=sf1/sf_tot)
 
 ageclass_prop[is.na(ageclass_prop)] <- 0
 
-# join with s            
+# dataframe with estimated proportions for each month+site combo            
 sum_msrd_prop <- ageclass_prop %>% 
   select(YearMo, sb0_p:sf1_p) %>% 
   full_join(sum_msrd, by="YearMo")
 
 # now it's time to take the unmeasured counts and multiply by estimated proportions
 unmsrd_estimates <- rawdata_unmsrd %>% 
-  inner_join(sum_msrd_prop, by=c("YrMoSite", "OrganismCode")
+  left_join(ageclass_prop, by="YearMo", "YrMoSite") %>% 
+  select(YrMoSite, OrganismCode, Count, sb0_p:sf1_p)
 
-             ?
+# striped bass
+unmsrd_estimates_sb <- unmsrd_estimates %>% 
+  filter(OrganismCode=="SB") %>% 
+  group_by(YrMoSite) %>% 
+  mutate(sb0_unmsr=Count*sb0_p, sb1_unmsr=Count*sb1_p, sb2_unmsr=Count*sb2_p) %>% 
+  select(YrMoSite, sb0_unmsr:sb2_unmsr) 
+
+# splittail
+unmsrd_estimates_st <- unmsrd_estimates %>% 
+  filter(OrganismCode=="ST") %>% 
+  group_by(YrMoSite) %>% 
+  mutate(st0_unmsr=Count*st0_p, st1_unmsr=Count*st1_p, st2_unmsr=Count*st2_p) %>% 
+  select(YrMoSite, st0_unmsr:st2_unmsr) 
+
+# tule perch
+unmsrd_estimates_tp <- unmsrd_estimates %>% 
+  filter(OrganismCode=="TP") %>% 
+  group_by(YrMoSite) %>% 
+  mutate(tp0_unmsr=Count*tp0_p, tp1_unmsr=Count*tp1_p) %>% 
+  select(YrMoSite, tp0_unmsr:tp1_unmsr) 
+
+# put them back together -AGAIN- before your brain bleeds out
+unmsrd_estimates_joined <- unmsrd_estimates_sb %>% 
+  full_join(unmsrd_estimates_st, by="YrMoSite") %>% 
+  full_join(unmsrd_estimates_tp, by="YrMoSite") %>% 
+  mutate_each(funs(round(.,0)), sb0_unmsr:tp1_unmsr) # round the values down to a whole number
+
+unmsrd_estimates_joined[is.na(unmsrd_estimates_joined)] <- 0
+
+unmsrd_2016 <- unmsrd_estimates_joined # look at bottom of script, this will be used for biomass estimates
+
+# join with "sum_msrd" in order to add them together
+sum_msrd_unmsrd <- sum_msrd %>% 
+  full_join(unmsrd_estimates_joined, by="YrMoSite")
+sum_msrd_unmsrd[is.na(sum_msrd_unmsrd)] <- 0 # this is fucking crucial or else it will skip the NAs!!
+sum_msrd_unmsrd <- sum_msrd_unmsrd %>% 
+  mutate(sb0_tot=sb0+sb0_unmsr, sb1_tot=sb1+sb1_unmsr, sb2_tot=sb2+sb2_unmsr, st0_tot=st0+st0_unmsr, st1_tot=st1+st1_unmsr, st2_tot=st2+st2_unmsr, tp0_tot=tp0+tp0_unmsr, tp1_tot=tp1+tp1_unmsr, sf0_tot=sf0, sf1_tot=sf1, sf2_tot=0)
+
+# write CSV file to store the data (msrd, unmsrd, total)
+chapter1_ab_2016 <- sum_msrd_unmsrd %>% 
+ write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Msrd_Unmsrd_2016.csv")
+
+```
+## checked the math, checks out on new total age class abundance for 13 rows with plus-counted fish- whew!
+
+```{r}
+# going to end the pain by creating a CSV file and importing it into MS Access for safe storage
+# and to compile it with the rest of the time-series
+
+
+
+# write CSV file to APPEND the table, "04_AgeClass_Abund_1995-2016" in Access dB
+#chapter1_append <- sum_msrd_unmsrd %>% 
+ # select(YrMoSite, sb0_tot:sf2_tot) %>% 
+  #rename(`SB_Age-0`=sb0_tot, `SB_Age-1`=sb1_tot, `SB_Age-2+`=sb2_tot, `ST_Age-0`=st0_tot, `ST_Age-1`=st1_tot, `ST_Age-2+`=st2_tot, `TP_Age-0`=tp0_tot,`TP_Age-1+`=tp1_tot, `SF_Age-0`=sf0_tot, `SF_Age-1`=sf1_tot, `SF_Age-2+`=sf2_tot)
+
+#chapter1_append2016 <- chapter1_append %>% 
+ # write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_AgeClass_Abun_2016_ForAppend.csv")
+#import this file into MS Access for append, look over 252 rows to make sure they're filled in correctly!
+```
+
+## Don't do this for the whole dataset because there were >600 records where I had to reference datasheets for notes such as "100 splittail over 50mm" and it's more accurate that way.
+
+```{r}
+# calculate biomass for measured and unmeasured fish in 2016? See file "BiomassEstimates"
+```
+
+```{r, JOIN 2016 unmeasured data}
+# this is the dataset you WANT your 2016 dataframe to match. Use it as a template:
+unmsrd <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Unmsrd_LW_1995-2015.csv")
+
+View(unmsrd) # 958 rows in longform
+View(unmsrd_2016) # 14 rows in wideform; 22 rows in longform (Together there are 980)
+
+# this is to create a longform dataframe with 2016 data 
+unmsrd_2016_sb <- unmsrd_2016 %>%
+  mutate(Species="StripedBass", OrganismCode="SB") %>% 
+  select(YrMoSite, OrganismCode, sb0_unmsr:sb2_unmsr) %>% 
+  rename(`Age-0`=sb0_unmsr, `Age-1`=sb1_unmsr, `Age-2+`=sb2_unmsr) %>% 
+  gather(AgeClass,Count,`Age-0`:`Age-2+`)
+
+unmsrd_2016_st <- unmsrd_2016 %>%
+  mutate(Species="Splittail", OrganismCode="ST") %>% 
+  select(YrMoSite, OrganismCode, st0_unmsr:st2_unmsr) %>% 
+  rename(`Age-0`=st0_unmsr, `Age-1`=st1_unmsr, `Age-2+`=st2_unmsr) %>% 
+  gather(AgeClass,Count,`Age-0`:`Age-2+`)
+
+unmsrd_2016_tp <- unmsrd_2016 %>%
+  mutate(Species="TulePerch", OrganismCode="TP") %>% 
+  select(YrMoSite, OrganismCode, tp0_unmsr:tp1_unmsr) %>% 
+  rename(`Age-0`=tp0_unmsr, `Age-1`=tp1_unmsr) %>% 
+  gather(AgeClass,Count,`Age-0`:`Age-1`)
+
+# no unmeasured SF in 2016
+#unmsrd_2016_sf <- unmsrd_2016 %>%
+ # mutate(Species="StarryFlounder") %>% 
+  #select(YrMoSite, OrganismCode, sf0_unmsr:sf2_unmsr) %>% 
+  #rename(`Age-0`=sf0_unmsr, `Age-1`=sf1_unmsr, `Age-2+`=sf2_unmsr) %>% 
+  #gather(AgeClass,Count,`Age-0`:`Age-2+`)
+  
+# bind them together - 78 rows
+unmsrd_all_2016 <- bind_rows(unmsrd_2016_st, unmsrd_2016_sb)
+unmsrd_all_2016 <- bind_rows(unmsrd_all_2016, unmsrd_2016_tp)
+unmsrd_all_2016 <- unmsrd_all_2016 %>% 
+  filter(Count>0)
+
+# add mean_sl to each YrMoSite by adding in the YearMo column and matchng to est length
+unmsrd_all_2016_mean <- unmsrd_all_2016 %>% 
+  separate(YrMoSite, c("YearMo", "StationCode"), "_", remove=FALSE) %>% 
+  unite(YrMoSpp, c(YearMo,OrganismCode), remove=FALSE) %>% 
+  inner_join(mean_sl_all, by=c("YrMoSpp", "AgeClass")) %>% 
+  select(YrMoSite, YrMoSpp, YearMo.x, StationCode:Count, mean_sl) %>% 
+  rename(YearMo=YearMo.x)
+
+View(unmsrd_all_2016_mean)
+
+# join with dataframe from 1995-2016
+unmsrd$YearMo <- as.character(unmsrd$YearMo)
+
+unmsrd_all_yrs <- bind_rows(unmsrd, unmsrd_all_2016_mean) %>% 
+  select(YrMoSite:mean_sl)
+
+# write CSV file for biomass estimates
+unmsrd_total <- unmsrd_all_yrs %>% 
+  write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Unmsrd_LW_1995-2016.csv")
 ```
 
