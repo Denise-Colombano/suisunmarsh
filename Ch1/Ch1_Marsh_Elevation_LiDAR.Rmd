@@ -1,0 +1,84 @@
+---
+title: "Ch1_Marsh_Elevation_LiDAR"
+author: "Denise Colombano"
+date: "March 13, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(readr)
+library(tidyr)
+library(plotrix)
+library(ggplot2)
+library(ggthemes)
+library(viridis)
+```
+
+```{r, 200m no upland}
+elev_200m <- read_csv("~/GitHub/suisunmarsh/Ch1/Elevation/elev_200m_LiDAR_ft.txt")
+head(elev_200m)
+
+elev_200m <- elev_200m %>% 
+  select(Slough,elev_ft)
+```
+
+```{r, 200m upland}
+elev_200m_up <- read_csv("~/GitHub/suisunmarsh/Ch1/Elevation/elev_200m_uplands_LiDAR_ft.txt")
+
+elev_200m_up <- elev_200m_up %>% 
+  select(Channel,elev_ft) %>% 
+  rename(Slough=Channel)
+
+head(elev_200m_up)
+```
+
+```{r, bind them together}
+## bind them into one dataframe
+elev_bind <- bind_rows(elev_200m, elev_200m_up) #5,235,120 rows
+elev_bind <- elev_bind %>% 
+  filter(elev_ft>-25)
+
+levels(elev_bind$Slough) <- c("Spring Branch", "Denverton", "Upper Suisun", "Cutoff", "Peytonia", "Nurse", "Lower Suisun", "Boynton", "Goodyear", "Montezuma", "Grant")
+
+# write a new CSV file
+elevation_200m <- elev_bind %>% 
+  write_csv("~/GitHub/suisunmarsh/Ch1/Elevation/elev_200m_Merged_LiDAR_ft.csv")
+
+# boxplot
+box <- ggplot(elev_bind, aes(x=Slough, y=elev_ft))+
+  geom_boxplot()
+box
+```
+
+```{r}
+## calculate mean elevation and se
+mean_elev <- elev_bind %>% 
+  group_by(Slough) %>% 
+  summarize(mean_el=mean(elev_ft), se=std.error(elev_ft, na.rm))
+
+# write a new CSV file and then manually DELETE Grant Slough from the table bc don't know how to do it in R
+#elevation_mean_200m <- mean_elev %>% 
+ # write_csv("~/GitHub/suisunmarsh/Ch1/Elevation/elev_200m_mean_LiDAR_ft.csv")
+
+# read the new CSV file back into the DF
+mean_elev <- read_csv("~/GitHub/suisunmarsh/Ch1/Elevation/elev_200m_mean_LiDAR_ft.csv")
+
+# bar chart
+bar <- ggplot(mean_elev, aes(x=Slough, y=mean_el)) +
+  geom_bar(stat="identity", fill="white", colour="black")+
+  geom_errorbar(aes(ymin=mean_el-se, ymax=mean_el+se), width=0.2)
+bar + facet_grid(Habitat~.)
+
+# cleveland dot plot
+
+dot <- ggplot(mean_elev,aes(x=mean_el, y=reorder(Slough,mean_el), color=mean_el)) +
+  geom_segment(aes(yend=Slough),xend=0, size=1.5)+
+  geom_point(size=5)+
+  theme_economist_white()+
+  scale_fill_viridis()+
+  labs(x="Mean Elevation (ft)", y="", title="Elevation (LiDAR)")
+
+dot + theme(plot.title = element_text(hjust = 0.5), title = element_text(size=18), axis.text.x = element_text(size=18), axis.text.y = element_text(size=18), legend.position="none" ) + facet_grid(.~Habitat)
+
+```
+

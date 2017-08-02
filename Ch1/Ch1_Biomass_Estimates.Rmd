@@ -16,13 +16,14 @@ library(plotrix)
 library(readr)
 ```
 
-# read in new, updated datasets through 2016
+# read in new, updated datasets through 2016 (with updated DV2/ SU1 data)
 ```{r}
 # 1. Length-weights (lw)
 
 # read in csv file with length data (incl. NAs) in order to calculate biomass
 # which will then be joined to the abundance dataframe
 # this file originates from the MS Access dB query "Qry_AgeClass_SL_ForBiomassCalc1" with years filtered >=1995
+# which queries the Zero Catch Age Class query
 chapter1_lw <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_StandardLengths_1995-2016.txt") # 70k+ rows
 
 chapter1_lw <- chapter1_lw %>% 
@@ -40,22 +41,29 @@ summary(chapter1_lw)
 ```{r}
 # read in csv files with abundance data for each age class (incl. NAs)
 
+## OLD CODE
 # 1995-2015
 #chapter1_ab <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_AgeClass_Abun_Estimates.txt") # old one
 #chapter1_ab <- chapter1_ab %>% 
- # filter(Yr>=1995)
+ #filter(Yr>=1995)
 
 # version 2
-chapter1_ab2 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_AgeClass_Abundance_Estimates_1995-2015.csv") # new one
-chapter1_ab2 <- chapter1_ab2 %>% 
-  filter(Yr>=1995)
+#chapter1_ab2 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_AgeClass_Abundance_Estimates_1995-2015.csv") # new one
+#chapter1_ab2 <- chapter1_ab2 %>% 
+  #filter(Yr>=1995)
 
 # 2016
-chapter1_ab_2016 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Msrd_Unmsrd_2016.csv")
+#chapter1_ab_2016 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Msrd_Unmsrd_2016.csv")
 
 # evaluate these dataframes and then bind them together
-View(chapter1_ab2)
-View(chapter1_ab_2016)
+#View(chapter1_ab2)
+#View(chapter1_ab_2016)
+```
+
+
+```{r}
+## NEW CODE
+chapter1_redo <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Msrd_Unmsrd_2016.csv") # 
 ```
 
 
@@ -66,7 +74,9 @@ View(chapter1_ab_2016)
 # A. Append the "chapter1_ab2" file with 2016 data - have to transform the "chapter1_ab2" file
 
 # read in CSV file with 5475 rows - that has been updated with all new data
-chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_Abundance_1995-2016.txt")
+#chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_Abundance_1995-2016.txt")
+
+chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Abundance&Surveys_Joined_1995-2016_Redo_5475rows.csv")
 
 # convert to longform (should be 5475 x number of age classes= 16425 rows)
 chapter1_st <- chapter1 %>%
@@ -317,17 +327,19 @@ mean_sl_all<- chapter1_lw %>%
 ```
 
 ```{r, tidy data in chapter1_ab DF}
+## SKIP FOR NOW I THINK
+
 # convert dataframe to long form, with species and age classes
 # 83,568 rows because 5223 x 4 species x 4 ages
 # then filtered down to 966 where count >0
-chapter1_ab_gathered <- chapter1_ab2 %>% 
-  select(YrMoSite, YearMo, OrganismCode, YrMoSpp, `Est_Age-0`, `Est_Age-1`, `Est_Age-1+`, `Est_Age-2+`) %>% 
-  rename("Age-0" = `Est_Age-0` , "Age-1" = `Est_Age-1` , "Age-1+" = `Est_Age-1+` , "Age-2+" = `Est_Age-2+`) %>% 
-  gather(AgeClass, Count, `Age-0`:`Age-2+`) %>% 
-  filter(Count>0)
+#chapter1_ab_gathered <- chapter1_ab2 %>% 
+ # select(YrMoSite, YearMo, OrganismCode, YrMoSpp, `Est_Age-0`, `Est_Age-1`, `Est_Age-1+`, `Est_Age-2+`) %>% 
+  #rename("Age-0" = `Est_Age-0` , "Age-1" = `Est_Age-1` , "Age-1+" = `Est_Age-1+` , "Age-2+" = `Est_Age-2+`) %>% 
+  #gather(AgeClass, Count, `Age-0`:`Age-2+`) %>% 
+  #filter(Count>0)
 
-chapter1_ab_gathered_joined <- chapter1_ab_gathered %>% 
-  inner_join(mean_sl_all, by=c("YrMoSpp", "AgeClass"))
+#chapter1_ab_gathered_joined <- chapter1_ab_gathered %>% 
+ # inner_join(mean_sl_all, by=c("YrMoSpp", "AgeClass"))
 
 #chapter1_unmsrd <- chapter1_ab_gathered_joined %>% 
  # write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Unmsrd_LW_1995-2015.csv") # lengths of unmeasured fish
@@ -338,7 +350,10 @@ chapter1_ab_gathered_joined <- chapter1_ab_gathered %>%
 # results from that analysis are imported in the next line
 
 ```{r}
-chapter1_unmsrd_all <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Unmsrd_LW_1995-2016.csv")
+chapter1_unmsrd_all <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Unmsrd_LW_1995-2016_Redo.csv")
+chapter1_unmsrd_all <- distinct(chapter1_unmsrd_all)
+
+summary(chapter1_unmsrd_all)
 ```
 
 
@@ -354,6 +369,9 @@ unmsr_age_sb <- chapter1_unmsrd_all %>%
   group_by(YrMoSite) %>% 
   mutate(sb_b_est_tot = (sb_b_est * Count)) %>% 
   select(YrMoSite, AgeClass, sb_b_est_tot) %>% 
+  group_by(YrMoSite,AgeClass) %>% # three extra lines of code to sum across YrMoSite
+  summarize(sum(sb_b_est_tot)) %>% # extra 
+  rename(sb_b_est_tot = `sum(sb_b_est_tot)`) %>% # extra
   spread(AgeClass, sb_b_est_tot, fill=0, convert=FALSE) %>% 
   rename(sb0_bu = `Age-0`, sb1_bu = `Age-1`, sb2_bu = `Age-2+`)
 View(unmsr_age_sb)
@@ -377,7 +395,8 @@ unmsr_age_tp <- chapter1_unmsrd_all %>%
   mutate(tp_b_est_tot = (tp_b_est * Count)) %>% 
   select(YrMoSite, AgeClass, tp_b_est_tot) %>% 
   spread(AgeClass, tp_b_est_tot, fill=0, convert=FALSE) %>% 
-  rename(tp0_bu = `Age-0`, tp1_bu = `Age-1+`)
+  rename(tp0_bu = `Age-0`, tp1_bu = `Age-1+`) %>% 
+  select(YrMoSite, tp0_bu, tp1_bu) # extra line of code
 View(unmsr_age_tp)
 
 # there are no plus-counted SF fish
@@ -392,7 +411,7 @@ View(unmsr_age_tp)
   #rename(sf_b0 = `Age-0`, sf1_b = `Age-1+`)
 #View(unmsr_age_sf)
 
-## Join back with 966 rows that have unmeasured fish estimated lengths
+## Join back with 868 rows that have unmeasured fish estimated lengths
 # replace NAs with zeros
 # rename file so I can remember what it is
 biomass_msrd_unmsrd <- biomass_msrd %>% 
@@ -418,68 +437,79 @@ biomass_totals[is.na(biomass_totals)] <- 0
 
 ### STEP 3. ADD TO REGULAR DF
 ```{r}
-chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_Abundance_1995-2016.txt")
-View(chapter1)
-glimpse(chapter1)
-chapter1$id <- 1:5475
-str(chapter1)
-summary(chapter1)
+chapter1_ab <- read_csv("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_Abundance_1995-2016_Redo.txt")
+View(chapter1_ab)
+glimpse(chapter1_ab)
+str(chapter1_ab)
+summary(chapter1_ab)
 
-chapter1_biom <- chapter1 %>% 
+chapter1_biom <- chapter1_ab %>% 
   inner_join(biomass_totals, yr="YrMoSite") 
-
+chapter1_biom$id <- 1:5475
 summary(chapter1_biom)
 
-biomass_age0_gpue <- chapter1_biom %>% 
+# import template for survey data
+template <- read_csv("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_Survey_WQ_Template_5475rows.txt")
+summary(template)
+View(template)
+
+# join biomass and template together
+chapter1_biom_joined <- template %>% 
+  inner_join(chapter1_biom, by="YrMoSite")
+summary(chapter1_biom_joined)
+
+biomass_age0_gpue <- chapter1_biom_joined %>% 
   select(YrMoSite, st0_b_tot, sb0_b_tot, tp0_b_tot, sf0_b_tot, TowMin) %>% 
   group_by(YrMoSite) %>% 
   summarize(st0_gpue = sum(st0_b_tot/ TowMin), sb0_gpue = sum(sb0_b_tot/ TowMin), tp0_gpue = sum(tp0_b_tot/ TowMin), sf0_gpue = sum(sf0_b_tot/ TowMin))
 summary(biomass_age0_gpue)
 
-biomass_age0_cpue <- chapter1_biom %>% 
+biomass_age0_cpue <- chapter1_biom_joined %>% 
   select(YrMoSite, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, TowMin) %>% 
   group_by(YrMoSite) %>% 
   summarize(st0_cpue = sum(`ST_Age-0`/ TowMin), sb0_cpue = sum(`SB_Age-0`/ TowMin), tp0_cpue = sum(`TP_Age-0`/ TowMin))
 summary(biomass_age0_cpue)
 
 # join mean gpue with main DF
-chapter1_biom <- chapter1_biom %>% 
+chapter1_biom_redo <- chapter1_biom_joined %>% 
   inner_join(biomass_age0_gpue, by="YrMoSite") %>% 
   inner_join(biomass_age0_cpue, by="YrMoSite")
 
-View(chapter1_biom)
+summary(chapter1_biom_redo)
+
+chapter1_biom_redo$TowMin <- as.integer(chapter1_biom_redo$TowMin)
 
 # write CSV file
-#chapter1_biom %>% 
- # write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_BiomassEstimates_1995-2016.csv")
+#chapter1_biom_redo %>% 
+ #write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_BiomassEstimates_1995-2016_Redo.csv")
 ```
 
 # need to double-check numbers with scatter plots
 
 ```{r}
 # Age-0
-st0_check <- ggplot(chapter1_biom, aes(x=`ST_Age-0`, y=st0_b_tot)) + 
-  geom_point()
+st0_check <- ggplot(chapter1_biom_redo, aes(x=`ST_Age-0`, y=st0_b_tot)) + 
+  geom_point() + facet_grid(Slough~.)
 st0_check
 
-sb0_check <- ggplot(chapter1_biom, aes(x=`SB_Age-0`, y=sb0_b_tot)) + 
+sb0_check <- ggplot(chapter1_biom_redo, aes(x=`SB_Age-0`, y=sb0_b_tot)) + 
   geom_point()
 sb0_check
 
-tp0_check <- ggplot(chapter1_biom, aes(x=`TP_Age-0`, y=tp0_b_tot)) + 
+tp0_check <- ggplot(chapter1_biom_redo, aes(x=`TP_Age-0`, y=tp0_b_tot)) + 
   geom_point()
 tp0_check
 
 # Age-1
-st1_check <- ggplot(chapter1_biom, aes(x=`ST_Age-1`, y=st1_b_tot)) + 
+st1_check <- ggplot(chapter1_biom_redo, aes(x=`ST_Age-1`, y=st1_b_tot)) + 
   geom_point()
 st1_check
 
-sb1_check <- ggplot(chapter1_biom, aes(x=`SB_Age-1`, y=sb1_b_tot)) + 
+sb1_check <- ggplot(chapter1_biom_redo, aes(x=`SB_Age-1`, y=sb1_b_tot)) + 
   geom_point()
 sb1_check
 
-tp1_check <- ggplot(chapter1_biom, aes(x=`TP_Age-1+`, y=tp1_b_tot)) + 
+tp1_check <- ggplot(chapter1_biom_redo, aes(x=`TP_Age-1+`, y=tp1_b_tot)) + 
   geom_point()
 tp1_check
 ```
@@ -490,7 +520,7 @@ tp1_check
 ## PLOTS
 # stacked area plot of annual biomass by year- code stolen from Ch1_Abundance file
 ```{r, stacked area graph by Yr}
-biomass_yr <- chapter1_biom %>% 
+biomass_yr <- chapter1_biom_redo %>% 
   select(Yr, st0_b_tot, sb0_b_tot, tp0_b_tot, st1_b_tot, sb1_b_tot, tp1_b_tot, st2_b_tot, sb2_b_tot, TowMin) %>% 
   group_by(Yr) %>% 
   summarize(ST_YOY=sum(st0_b_tot)/ sum(TowMin), SB_YOY=sum(sb0_b_tot)/ sum(TowMin), TP_YOY=sum(tp0_b_tot)/ sum(TowMin), ST_Older = sum(st1_b_tot)/ sum(TowMin), SB_Older=sum(sb1_b_tot)/ sum(TowMin), TP_Older=sum(tp1_b_tot)/ sum(TowMin))
@@ -522,14 +552,14 @@ stacked_area + theme(plot.title = element_text(hjust = 0.5), legend.title = elem
 ```{r, calculate average annual biomass over 21 years}
 ## Calculate average ANNUAL cPUE (21 data points)
 
-biomass <- chapter1_biom
+biomass <- chapter1_biom_redo
 
 # calculate mean CPUE and SE per slough
 # use plotrix pacakge to calculate SE
 annual_mean_gpue <- biomass %>% 
   group_by(Slough) %>% 
   summarize(Splittail = mean(st0_gpue), StripedBass = mean(sb0_gpue), TulePerch = mean(tp0_gpue), Splittail_SE =std.error(st0_gpue,na.rm), StripedBass_SE =std.error(sb0_gpue,na.rm), TulePerch_SE =std.error(tp0_gpue,na.rm)) #%>% 
-  #write.csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Annual_Abun_Mean&SE_Age0.csv", row.names=FALSE)
+  #write.csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Annual_Abun_Mean&SE_Age0_redo.csv", row.names=FALSE)
 
 # convert these to long format 
 slough_gpue_mean2 <- annual_mean_gpue %>% 

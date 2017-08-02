@@ -1,0 +1,972 @@
+---
+title: "Ch1_Histograms"
+author: "Denise Colombano"
+date: "March 15, 2017"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(ggthemes)
+library(gcookbook)
+library(grid)
+library(plotrix)
+library(readr)
+```
+
+```{r}
+# Dataset with measured lengths 1995-2016
+chapter1_lw <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_StandardLengths_1995-2016_Cleaned.csv") # 70k+ rows
+
+chapter1_lw <- chapter1_lw %>% 
+  filter(SampleYear>=1995, MethodCode=="OTR", !is.na(AgeClass)) %>%  #57658 rows 
+  unite(YrMoSite, c(YearMo,StationCode),sep="_", remove=FALSE) %>% 
+  unite(YrMoSpp, c(YearMo,OrganismCode),sep="_", remove=FALSE) 
+chapter1_lw$YrMoSite <- as.factor(chapter1_lw$YrMoSite)
+
+chapter1_investigation <- chapter1_lw %>% 
+  filter(OrganismCode=="SB"& AgeClass=="Age-0"& StandardLength>165)
+
+# why are there 74 fish with lengths and no age classes? check later
+
+# Dataset with unmeasured (estimated) lengths
+chapter1_unmsr <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Unmsrd_LW_1995-2016_Redo.csv")
+```
+
+```{r}
+# Dataset with MYSIDS
+mysids <- read_csv("~/GitHub/suisunmarsh/Ch1/Mysids/Ch1_Data_MysidRanks_1995-2016.csv")
+View(mysids)
+
+mysids <- mysids %>%
+  separate(YrMoSite,c("YearMo", "StationCode"), sep="_", remove=FALSE)
+```
+
+
+```{r}
+# The purpose of this exercise is to create length- and weight-frequency histograms and density plots by grouping variables such as month, year, slough, etc.
+
+# First I have to re-format the "chapter1_lw" and "chapter1_unmsr" DF because each row has a Count and an estimated SL. Instead we need each row to represent a SINGLE individual fish- not groups of fish with the same length.
+```
+
+```{r, Attempt 1. Create a new DF using code from an example in Stack Overflow}
+
+# first subset the dataframes and bind them together
+chapter1_lw_sub <- chapter1_lw %>% 
+  select(YrMoSite, YearMo, StationCode, YrMoSpp, AgeClass, StandardLength, Count) %>% 
+  rename(SL=StandardLength)  
+chapter1_lw_sub$YearMo <- as.character(chapter1_lw_sub$YearMo)
+
+chapter1_un_sub <- chapter1_unmsr %>% 
+  select(YrMoSite,YrMoSpp,AgeClass,mean_sl,Count) %>% 
+  rename(SL=mean_sl) %>% 
+  separate(YrMoSite, c("YearMo","StationCode"), sep="_", remove=FALSE)
+
+# bind them together- this DF has both measured fish and estimated lengths for unmeasured fish
+chapter1_bind <- bind_rows(chapter1_lw_sub, chapter1_un_sub) %>% 
+  separate(YrMoSpp, c("YearMo2","Species"), remove=FALSE) 
+
+# double check cbind
+chapter1_bind_chk <- chapter1_bind %>% 
+  filter(Species=="ST", AgeClass=="Age-0")
+
+# unite it all (again)
+chapter1_mat <- chapter1_bind %>% 
+  select(YrMoSite, Species, AgeClass, SL, Count) %>% 
+  unite(ID, c(YrMoSite, Species, AgeClass), sep="_", remove=TRUE)
+
+# try out this code with the smaller dataset, if it works then bind them together and executive for 60k+ rows
+
+mymat <- as.matrix(chapter1_mat)
+reps <- as.integer(chapter1_mat$Count)
+mmat <- mymat[rep(1:nrow(mymat), reps), ]
+
+# turn matrix into a dataframe
+
+mmat_df <- as.data.frame(mmat)
+mmat_df$SL <- as.integer(mmat_df$SL)
+
+chapter1_mat2 <- chapter1_mat %>%
+  separate(ID, c("YearMo","StationCode","Species","AgeClass"), sep="_", remove=TRUE)
+
+chapter1_mat2 <- chapter1_mat2 %>% 
+  unite(YrMoSite, c(YearMo,StationCode), remove=FALSE)
+
+# check to see where problem is arising
+chapter1_investigation3 <- chapter1_mat2 %>% 
+  filter(Species=="SB"& AgeClass=="Age-0"& SL>165) #not here
+
+#chapter1_mat2 %>% 
+ # write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_SL_Matrix_Redo.csv")
+
+# make sure 201108_MZ2 doesn't have 243 rows # Checked for redo!
+```
+
+```{r}
+#histograms <- read.csv(("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_SL_Matrix_Redo.csv"))
+
+histograms <- chapter1_mat2
+
+# join with all the grouping data, like Sample Month and Sample Year
+template <- read_csv(("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_Survey_WQ_Template_5475rows.txt")) %>% 
+ select(YrMoSite:Slough)
+template$YrMoSite <- as.factor(template$YrMoSite)
+
+# write a new CSV with template so can use it again
+#template %>% 
+ # write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Template_5475rows_1995-2016.csv")
+
+histograms <- histograms %>% 
+  left_join(template, by="YrMoSite")
+ 
+# tidy dataset
+histograms <- histograms %>% 
+  select(YrMoSite, YearMo.x, Yr, Mo, Slough, StationCode.x, Species, AgeClass, SL) %>% 
+  rename(OrganismCode=Species, YearMo=YearMo.x, StationCode=StationCode.x)
+```
+
+# now calculate biomass (again)
+```{r, calculate BIOMASS}
+# now must re-calculate biomass (again) - steal code from Ch1_Biomass_Estimates
+
+# Step 1. Create sub-DF with estimated biomass for each species
+
+# Striped Bass
+sb_biomass <- histograms %>% 
+  filter(OrganismCode=="SB") %>% 
+  mutate(Biomass = ((SL^3.25)*0.0034)/1000) 
+
+st_biomass <- histograms %>% 
+  filter(OrganismCode=="ST") %>% 
+  mutate(Biomass = ((SL^3.30)*0.0026)/1000) 
+
+tp_biomass <- histograms %>% 
+  filter(OrganismCode=="TP") %>% 
+  mutate(Biomass = ((SL^2.96)*0.0289)/1000) 
+
+sf_biomass <- histograms %>% 
+  filter(OrganismCode=="SF") %>% 
+  mutate(Biomass = ((SL^3.13)*0.0082)/1000) 
+
+## Join back together
+histograms_bind <- bind_rows(sb_biomass,st_biomass)
+histograms_bind <- bind_rows(histograms_bind,tp_biomass) # no starry flounder
+histograms_bind2 <- bind_rows(histograms_bind,sf_biomass) # yes starry flounder
+
+# import vegetation & elevation layers
+veg <- read_csv("~/GitHub/suisunmarsh/Ch1/Vegetation/vegbuffers_200m_updt.csv")
+mean_elev <- read_csv("~/GitHub/suisunmarsh/Ch1/Elevation/elev_200m_mean_LiDAR_ft.csv")
+depth <- read_csv("~/GitHub/suisunmarsh/Ch1/Elevation/Avgdepth_allyrs_deep_vs_shallow.txt")
+
+# create new variables in veg file
+veg <- veg %>%
+  mutate(vegchan=tidal/channel)
+veg$vegchan_cat <- ifelse(veg$vegchan>7, "high", 
+       ifelse(veg$vegchan<1.5, "low", "med"))
+veg$vegchan_high <- ifelse(veg$vegchan_cat=="high", 1,0)
+veg$vegchan_med <- ifelse(veg$vegchan_cat=="med", 1,0)
+veg$vegchan_low <- ifelse(veg$vegchan_cat=="low", 1,0)
+
+  
+veg$veg_cat <- ifelse(veg$`%tidal`>0.50, "high", 
+       ifelse(veg$`%tidal`<0.29, "low", "med"))
+veg$veg_high <- ifelse(veg$veg_cat=="high", 1,0)
+veg$veg_med <- ifelse(veg$veg_cat=="med", 1,0)
+veg$veg_low <- ifelse(veg$veg_cat=="low", 1,0)
+
+depth$depthcat <- ifelse(depth$deep==1,"deep", "shallow")
+
+# now join to habitat 
+histograms_bind <- histograms_bind %>% 
+  inner_join(veg, by="Slough") %>% 
+  inner_join(mean_elev, by="Slough") %>% 
+  inner_join(depth, by="StationCode")
+
+# rename columns
+histograms_bind <- histograms_bind %>% 
+  rename(Slough=Slough.x)
+
+#habitat_tbl <- veg %>% 
+ # inner_join(mean_elev, by="Slough") %>% 
+  #inner_join(depth, by="Slough") %>% 
+  #group_by(Slough) %>% 
+  #mutate(mean_depth=mean(avgdepth_allyrs)) %>% 
+  #select(Slough, `%tidal`:mean_el, mean_depth) %>% 
+  #group_by(Slough) %>% 
+  #write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_Habitat_Table.csv")
+
+#histograms_bind %>% 
+ #write_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_StandardLengths&Biomass_1995-2016_Redo.csv")
+
+# import directly
+#histograms_bind <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_StandardLengths&Biomass_1995-2016.csv")
+
+# FILTERING
+
+# only age-0
+histograms_age0 <- histograms_bind %>%
+  filter(AgeClass=="Age-0")
+
+biomass_age0 <- histograms_bind %>% 
+  filter(AgeClass=="Age-0")
+
+# only age-0 in summer (April-October)
+histograms_age0_summer <- histograms_bind %>%
+  filter(AgeClass=="Age-0",Mo>4) %>% 
+  filter(Mo<10)
+
+biomass_age0_summer <- histograms_bind %>% 
+  filter(AgeClass=="Age-0", Mo>4) %>% 
+  filter(Mo<10)
+```
+# woohoo! 
+
+
+## PLOTTING
+
+# HISTOGRAMS
+
+# 1. ALL AGES by LOCATION
+```{r, TOTAL DATASET by Year, Mo, Site, Slough}  
+## StationCode
+# Standard Lengths
+site <- ggplot(histograms_bind, aes(x=SL)) + geom_histogram(fill="white", colour="black") +
+  scale_x_continuous(breaks=c(100,400))
+site + facet_grid(OrganismCode~., scales="free")
+site + facet_grid(OrganismCode~Yr, scales="free") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+site + facet_grid(OrganismCode~StationCode, scales="free") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Biomass
+site_b <- ggplot(histograms_bind, aes(x=Biomass)) + geom_histogram(fill="white", colour="black")+
+  scale_x_continuous(breaks=c(1000,4000))
+site_b + facet_grid(OrganismCode~., scales="free")
+site_b + facet_grid(OrganismCode~Yr, scales="free") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+site_b + facet_grid(OrganismCode~StationCode, scales="free") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+## Slough
+# StandardLengths
+slough <- ggplot(histograms_bind, aes(x=SL, fill=AgeClass)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Standard Length (mm)", y="Frequency")
+slough + facet_grid(OrganismCode~Slough, scales="free")+ theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1) )
+
+# Biomass
+slough_b <- ggplot(histograms_bind, aes(x=Biomass, fill=AgeClass)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)
+slough_b + facet_grid(OrganismCode~Slough, scales="free")+ theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1) )
+
+
+## Month
+# Standard Lengths
+month <- ggplot(histograms_bind, aes(x=SL, fill=Mo)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Standard Length (mm)", y="Frequency", title="Size Distribution by Month")+
+  scale_x_continuous(breaks=c(200,400))
+  
+month + facet_grid(OrganismCode~Mo, scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), title=element_text(size=16) )
+
+# Biomass
+month_b <- ggplot(histograms_bind, aes(x=Biomass, fill=Mo)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Weight (grams)", y="Frequency")
+  
+month_b + facet_grid(OrganismCode~Mo, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+
+
+## Year
+# Standard Lengths
+yrr <- ggplot(histograms_age0, aes(x=SL, fill=Yr)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Standard Length (mm)", y="Frequency")
+  
+yrr + facet_grid(OrganismCode~Yr, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+
+# Biomass
+yrr_b <- ggplot(biomass_age0, aes(x=Biomass, fill=Yr)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Weight (grams)", y="Frequency")
+  
+yrr_b + facet_grid(OrganismCode~Yr, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+```
+
+# Habitat
+```{r}
+# Tidal vegetation (200m)
+# Standard Lengths
+tidal <- ggplot(histograms_age0_summer, aes(x=SL, fill=`%tidal`)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Standard Length (mm)", y="Frequency")+
+  xlim(0,125)
+  
+tidal + facet_grid(OrganismCode~`%tidal`, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+
+# Biomass
+tidal_b <- ggplot(biomass_age0_summer, aes(x=Biomass, fill=`%tidal`)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Weight (grams)", y="Frequency")+
+  xlim(0,30)
+  
+tidal_b + facet_grid(OrganismCode~`%tidal`, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+```
+
+```{r}
+# Managed wetland (200m)
+# Standard Lengths
+managed <- ggplot(histograms_age0, aes(x=SL, fill=`%managed`)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Standard Length (mm)", y="Frequency")
+  
+managed + facet_grid(OrganismCode~`%managed`, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+
+# Biomass
+managed_b <- ggplot(biomass_age0, aes(x=Biomass, fill=`%managed`)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Weight (grams)", y="Frequency")
+  
+managed_b + facet_grid(OrganismCode~`%managed`, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+```
+
+```{r}
+# Total (tidal & managed) wetland (200m)
+# Standard Lengths
+wetland <- ggplot(histograms_age0, aes(x=SL, fill=`%wetland`)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Standard Length (mm)", y="Frequency")
+  
+wetland + facet_grid(OrganismCode~`%wetland`, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+
+# Biomass
+wetland_b <- ggplot(biomass_age0, aes(x=Biomass, fill=`%wetland`)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Weight (grams)", y="Frequency")
+  
+wetland_b + facet_grid(OrganismCode~`%wetland`, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+```
+
+```{r}
+# Total (tidal & managed) wetland (200m)
+# Standard Lengths
+upland <- ggplot(histograms_age0, aes(x=SL, fill=`%upland`)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Standard Length (mm)", y="Frequency")
+  
+upland + facet_grid(OrganismCode~`%upland`, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+
+# Biomass
+upland_b <- ggplot(biomass_age0, aes(x=Biomass, fill=`%upland`)) + 
+  geom_histogram() +
+  theme_economist_white()+
+  scale_colour_economist()+
+  guides(fill=FALSE)+
+  labs(x="Weight (grams)", y="Frequency")
+  
+upland_b + facet_grid(OrganismCode~`%upland`, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+```
+
+```{r, FILTER OUT SUMMER MONTHS}
+# splittail filter DF
+
+histograms_age0_summer_st <- histograms_age0_summer %>% 
+  filter(OrganismCode=="ST") 
+
+biomass_age0_summer_st <- biomass_age0_summer %>% 
+  filter(OrganismCode=="ST") 
+
+# striped bass filtered DF
+
+histograms_age0_summer_sb <- histograms_age0_summer %>% 
+  filter(OrganismCode=="SB") 
+
+biomass_age0_summer_sb <- biomass_age0_summer %>% 
+  filter(OrganismCode=="SB") 
+
+# tule perch filtered DF
+
+histograms_age0_summer_tp <- histograms_age0_summer %>% 
+  filter(OrganismCode=="TP") 
+
+biomass_age0_summer_tp <- biomass_age0_summer %>% 
+  filter(OrganismCode=="TP") 
+```
+
+
+# SLOUGH V. CORRIDOR
+```{r, PLOT by SLOUGH V. CORRIDOR -- in color}
+
+# ALL species
+habitat <- ggplot(histograms_age0_summer, aes(x=SL, ..count.., fill=Habitat.y)) + 
+  geom_density(alpha=0.3, stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  labs(x="Standard Length (mm)", y="Frequency", title="YOY Size Distribution Among Slough Types")+
+  theme_economist_white()+
+  scale_fill_economist(name="",breaks=c("Slough", "Wetland"), labels=c("Corridor", "Wetland"))
+
+habitat + facet_grid(OrganismCode~., scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), strip.text.y = element_text(size=18), title = element_text(size=18)) 
+
+
+habitat_b <- ggplot(biomass_age0_summer, aes(x=Biomass, ..count.., fill=Habitat.y)) + 
+  geom_density(alpha=0.3, stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  labs(x="Weight (grams)", y="Frequency", title="YOY Weight Distribution Among Slough Types")+
+  theme_economist_white()+
+  scale_fill_economist(name="",breaks=c("Slough", "Wetland"), labels=c("Corridor", "Wetland"))
+
+habitat_b + facet_grid(OrganismCode~., scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), strip.text.y = element_text(size=18), title = element_text(size=18)) 
+```
+
+```{r, in BLACK AND WHITE, with habitat.y instead of habitat.x}
+# ALL species
+colors1 <- c("black","grey20")
+
+habitat <- ggplot(histograms_age0_summer, aes(x=SL, ..count.., fill=Habitat.y)) + 
+  geom_density(alpha=0.5,stat="density", position="identity", size=0.5) +
+  scale_x_continuous(breaks=c(0,25,50,75,100,125))+
+  labs(x="Standard Length (mm)", y="Frequency")+
+  theme_bw()+
+   scale_fill_manual(values = colors1, name="",breaks=c("Corridor", "Interior Slough"), labels=c("Corridor", "Terminal"))
+
+habitat + facet_grid(OrganismCode~., scales="free") + theme(axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), legend.position = "top", strip.text.y = element_text(size=18), strip.background = element_rect(colour="black", fill="white", size=0.5), panel.grid = element_blank()) 
+
+
+habitat_b <- ggplot(biomass_age0_summer, aes(x=Biomass, ..count.., fill=Habitat.y)) + 
+  geom_density(alpha=0.5, stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  labs(x="Weight (grams)", y="Frequency", title="")+
+  theme_bw() +
+  scale_fill_manual(values = colors1, name="",breaks=c("Corridor", "Interior Slough"), labels=c("Corridor", "Terminal"))
+
+habitat_b + facet_grid(OrganismCode~., scales="free") + theme(axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), legend.position = "top", strip.text.y = element_text(size=18), strip.background = element_rect(colour="black", fill="white", size=0.5), panel.grid = element_blank()) 
+```
+
+
+
+
+```{r}
+# ALL species by MONTH
+habitat2 <- ggplot(histograms_age0_summer, aes(x=SL, ..count.., fill=Habitat.y)) + 
+  geom_density(alpha=0.3, stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  labs(x="Standard Length (mm)", y="Frequency", title="Monthly YOY Size Distribution")+
+  theme_economist_white()+
+  scale_fill_economist(name="",breaks=c("Slough", "Wetland"), labels=c("Corridor", "Terminal"))+
+  scale_x_continuous(breaks=c(50,100))+
+  xlim(0,150)
+  
+habitat2 + facet_grid(OrganismCode~Mo, scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), strip.text.y = element_text(size=18), title = element_text(size=18), axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+
+
+habitat2_b <- ggplot(biomass_age0_summer, aes(x=Biomass, ..count.., fill=Habitat.y)) + 
+  geom_density(alpha=0.3, stat="density", position="identity", size=0.5) +
+  labs(x="Weight (grams)", y="Frequency", title="YOY Weight Distribution Among Slough Types")+
+  theme_economist_white()+
+  xlim(0,200)+
+  scale_fill_economist(name="",breaks=c("Slough", "Wetland"), labels=c("Corridor", "Terminal"))
+
+habitat2_b + facet_grid(OrganismCode~Mo, scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), strip.text.y = element_text(size=18), title = element_text(size=18)) 
+```
+
+```{r, by VEGETATION CATEGORY (LOW, MED, HIGH)}
+colors2 <- c("black","grey20", "grey50")
+
+vegcat <- ggplot(histograms_age0_summer, aes(x=SL, ..count.., fill=vegchan_cat)) + 
+  geom_density(alpha=0.2,stat="density", position="identity", size=0.5) +
+  scale_x_continuous(breaks=c(0,25,50,75,100,125))+
+  labs(x="Standard Length (mm)", y="Frequency")+
+  theme_bw()+
+   scale_fill_stata()
+
+vegcat + facet_grid(OrganismCode~Mo, scales="free") + theme(axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), legend.position = "top", strip.text.y = element_text(size=18), strip.background = element_rect(colour="black", fill="white", size=0.5), panel.grid = element_blank()) 
+
+
+vegcat_b <- ggplot(biomass_age0_summer, aes(x=Biomass, ..count.., fill=vegchan_cat)) + 
+  geom_density(alpha=0.2, stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  labs(x="Weight (grams)", y="Frequency", title="")+
+  theme_bw() +
+  scale_fill_stata()
+
+vegcat_b + facet_grid(OrganismCode~Mo, scales="free") + theme(axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), legend.position = "top", strip.text.y = element_text(size=18), strip.background = element_rect(colour="black", fill="white", size=0.5), panel.grid = element_blank()) 
+```
+
+```{r, Mean YOY SL by vegetation category}
+mean_veg_yoy <- histograms_age0_summer %>% 
+  select(OrganismCode, SL, Biomass, vegchan_cat) %>% 
+  group_by(OrganismCode, vegchan_cat) %>% 
+  summarize(mean_sl=mean(SL), mean_g=mean(Biomass), se1=std.error(SL), se2=std.error(Biomass) )
+
+# plot a bar chart with error bars
+bar3 <- ggplot(mean_veg_yoy, aes(x=vegchan_cat, y=mean_sl, fill=vegchan_cat)) +
+  geom_bar(stat="identity", position="dodge", colour="black") +
+  facet_grid(Species~., scales="free")+
+  theme_economist_white()+
+  scale_fill_economist(guide=FALSE) +
+  labs(y="Mean SL( mm)", x="", title="")
+
+bar3
+
+bar3 + geom_errorbar(aes(ymin = mean_sl- se1, ymax = mean_sl + se1), size=0.5, width = 0.25, position=position_dodge(0.9)) + facet_grid(OrganismCode~.) + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), title = element_text(size=16))
+```
+
+
+
+```{r, by DEPTH (SHALLOW vs DEEP)}
+colors2 <- c("black","grey20")
+
+avgdepth <- ggplot(histograms_age0_summer, aes(x=SL, ..count.., fill=depthcat)) + 
+  geom_density(alpha=0.5,stat="density", position="identity", size=0.5) +
+  scale_x_continuous(breaks=c(0,25,50,75,100,125))+
+  labs(x="Standard Length (mm)", y="Frequency")+
+  theme_bw()+
+   scale_fill_grey()
+
+avgdepth + facet_grid(OrganismCode~., scales="free") + theme(axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), legend.position = "top", strip.text.y = element_text(size=18), strip.background = element_rect(colour="black", fill="white", size=0.5), panel.grid = element_blank()) 
+
+
+avgdepth_b <- ggplot(biomass_age0_summer, aes(x=Biomass, ..count.., fill=depthcat)) + 
+  geom_density(alpha=0.5, stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  labs(x="Weight (grams)", y="Frequency", title="")+
+  theme_bw() +
+  scale_fill_grey()
+
+avgdepth_b + facet_grid(OrganismCode~., scales="free") + theme(axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), legend.position = "top", strip.text.y = element_text(size=18), strip.background = element_rect(colour="black", fill="white", size=0.5), panel.grid = element_blank()) 
+```
+
+```{r, by DEPTH (with BEACH SEINE DATA)}
+
+```
+
+
+## DENSITY PLOTS BY MONTH - SUMMER
+```{r, Month}
+
+# Standard Lengths
+habitat_mo <- ggplot(histograms_age0_summer, aes(x=SL, ..count.., color=Slough)) + 
+  geom_density(size=0.9, stat="density", position="identity") +
+  theme_economist_white()+
+  scale_colour_stata()+
+  xlim(0,125)+
+  labs(x="Standard Length (mm)", y="Frequency", title="YOY Size Distribution Among Sloughs")
+habitat_mo + facet_grid(OrganismCode~Mo, scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=16), axis.title.y = element_text(size=16), title = element_text(size=16) ) 
+
+# Biomass
+# Standard Lengths
+habitat_mo_b <- ggplot(histograms_age0_summer, aes(x=Biomass, ..count.., color=Slough)) + 
+  geom_density(size=0.9, stat="density", position="identity") +
+  theme_economist_white()+
+  scale_colour_stata()+
+  xlim(0,30)+
+  labs(x="Weight (grams)", y="Frequency", title="YOY Weight Distribution Among Sloughs")
+habitat_mo_b + facet_grid(OrganismCode~Mo, scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=16), axis.title.y = element_text(size=16), title = element_text(size=16) ) 
+```
+
+
+## SLOUGHS- OVERALL
+```{r}
+# Broken down by habitat types
+# Standard Lengths
+sloughs <- ggplot(histograms_age0_summer, aes(x=SL, ..count.., color=Slough.x)) + 
+  geom_density(alpha=0.3, stat="density", position="identity", size=1.25) +
+  theme_economist_white()+
+  scale_colour_stata()+
+  labs(x="Standard Length (mm)", y="Frequency")
+sloughs + facet_grid(OrganismCode~., scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16)) 
+
+# biomass
+sloughs_b <- ggplot(biomass_age0_summer, aes(x=Biomass, ..count.., color=Slough.x)) + 
+  geom_density(alpha=0.3, stat="density", position="identity", size=1.25) +
+  theme_economist_white()+
+  scale_colour_stata()+
+  labs(x="Weight (grams)", y="Frequency")+
+  xlim(0,15)
+sloughs_b + facet_grid(OrganismCode~., scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16)) 
+```
+
+
+
+## INDIVIDUAL SPECIES
+```{r, SLOUGH V. CORRIDOR}
+
+# Broken down by individual species + month
+# striped bass
+# Standard Lengths
+habitat_sb <- ggplot(histograms_age0_summer_sb, aes(x=SL, ..count.., fill=Habitat.x)) + 
+  geom_density(alpha=0.3, stat="density", position="identity") +
+  theme_economist_white()+
+  scale_fill_economist(name="",breaks=c("Slough", "Wetland"), labels=c("Corridor", "Terminal"))+
+  labs(x="Standard Length (mm)", y="Frequency")
+habitat_sb + facet_grid(.~Mo) + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16)) 
+
+# Biomass
+habitat_sb_b <- ggplot(biomass_age0_summer_sb, aes(x=Biomass, ..count.., fill=Habitat)) + 
+  geom_density(alpha=0.3, stat="density", position="identity") +
+  theme_economist_white()+
+  scale_fill_economist(name="",breaks=c("Slough", "Wetland"), labels=c("Corridor", "Terminal"))+
+  labs(x="Weight (grams)", y="Frequency")
+habitat_sb_b + facet_grid(.~Mo) + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+
+# tule perch
+# Standard Lengths
+habitat_tp <- ggplot(histograms_age0_summer_tp, aes(x=SL, ..count..,fill=Habitat)) + 
+  geom_density(alpha=0.3, stat="density", position="identity") +
+  theme_economist_white()+
+  scale_fill_economist(name="",breaks=c("Slough", "Wetland"), labels=c("Corridor", "Interior Slough"))+
+  labs(x="Standard Length (mm)", y="Relative frequency")
+habitat_tp + facet_grid(.~Mo) + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16)) 
+
+# Biomass
+habitat_tp_b <- ggplot(biomass_age0_summer_tp, aes(x=Biomass,..count.., fill=Habitat)) + 
+  geom_density(alpha=0.3, stat="density", position="identity") +
+  theme_economist_white()+
+  scale_fill_economist(name="",breaks=c("Slough", "Wetland"), labels=c("Corridor", "Interior Slough"))+
+  labs(x="Weight (grams)", y="Relative frequency")
+habitat_tp_b + facet_grid(.~Mo) + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16) )
+
+```
+
+# SLOUGH-SPECIFIC COMPARISONS
+```{r}
+# Denverton & Spring Branch SL
+sb <- histograms_age0_summer %>% 
+  filter(Slough=="SpringBranch")
+dv <- histograms_age0_summer %>% 
+  filter(Slough=="Denverton")
+gy <- histograms_age0_summer %>% 
+  filter(Slough=="Goodyear")
+co <- histograms_age0_summer %>% 
+  filter(Slough=="Cutoff")
+nrs <- histograms_age0_summer %>% 
+  filter(Slough=="Nurse")
+pt <- histograms_age0_summer %>% 
+  filter(Slough=="Peytonia")
+by <- histograms_age0_summer %>% 
+  filter(Slough=="Boynton")
+suisun <- histograms_age0_summer %>% 
+  filter(Slough=="SuisunLower")
+suisunupp <- histograms_age0_summer %>% 
+  filter(Slough=="SuisunUpper")
+montezuma <- histograms_age0_summer %>% 
+  filter(Slough=="Montezuma")
+
+all_others <- bind_rows(dv,gy,co,nrs,pt,by,suisun,suisunupp,montezuma)
+
+hotspots <- bind_rows(sb,dv,gy,co)
+southwest <- bind_rows(suisun, gy, co, sb)
+northeast <- bind_rows(nrs, dv, montezuma)
+
+# two core patches
+core <- bind_rows(sb,dv)
+
+# patch plus migratory corridor
+suisun <- histograms_age0_summer %>% 
+  filter(Slough=="SuisunLower")
+patch1 <- bind_rows(suisun,sb)
+
+montezuma <- histograms_age0_summer %>% 
+  filter(Slough=="Montezuma")
+patch2 <- bind_rows(montezuma, dv)
+
+# Denverton & Spring Branch Biomass
+sb_b <- biomass_age0_summer %>% 
+  filter(Slough=="SpringBranch")
+dv_b <- biomass_age0_summer %>% 
+  filter(Slough=="Denverton")
+gy_b <- biomass_age0_summer %>% 
+  filter(Slough=="Goodyear")
+co_b <- biomass_age0_summer %>% 
+  filter(Slough=="Cutoff")
+nrs_b <- biomass_age0_summer %>% 
+  filter(Slough=="Nurse")
+
+hotspots_b <- bind_rows(sb_b,dv_b, gy_b, co_b)
+southwest_b <- bind_rows(suisun_b, gy_b, co_b, sb_b)
+northeast_b <- bind_rows(nrs_b, dv_b, montezuma_b)
+
+# two core patches
+core_b <- bind_rows(sb_b, dv_b)
+
+# patch plus migratory corridor
+suisun_b <- biomass_age0_summer %>% 
+  filter(Slough=="SuisunLower")
+patch1_b <- bind_rows(suisun_b,sb_b)
+
+montezuma_b <- biomass_age0_summer %>% 
+  filter(Slough=="Montezuma")
+patch2_b <- bind_rows(montezuma_b, dv_b)
+
+# PATCH VS. CORRIDOR PLOTS
+
+# Spring Branch VS. Denverton
+# Standard Lengths
+
+# create levels and new strip text names
+histograms_age0_summer$OrganismCode <- factor(histograms_age0_summer$OrganismCode, levels=c( "ST", "SB", "TP"))
+species_names <- c(
+                    `ST` = "Splittail",
+                    `SB` = "Striped Bass",
+                    `TP` = "Tule Perch",
+                    `5` = "May",
+                    `6` = "June",
+                    `7` = "July",
+                    `8` = "August",
+                    `9` = "September"
+                    )
+
+slough1 <- ggplot(hotspots, aes(x=SL, ..count.., color=Slough)) + 
+  geom_density(alpha=0.3,stat="density", position="identity", size=1.2) +
+  scale_x_continuous() +
+  labs(x="Standard Length (mm)", y="Frequency", title="YOY Size Distribution in Nursery Hotspots")+
+  theme_economist_white()+
+  scale_colour_colorblind(name="")+
+  xlim(0,125)
+
+slough1 + facet_grid(OrganismCode~Mo, scales="free", labeller = as_labeller(species_names)) + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=12), axis.title.y = element_text(size=12), legend.text = element_text(size=12), strip.text.y = element_text(size=12), title = element_text(size=12))
+
+slough1_b <- ggplot(hotspots_b, aes(x=Biomass, ..count.., fill=Slough)) + 
+  geom_density(alpha=0.3,stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  xlim(0,30)+
+  labs(x="Weight (grams)", y="Frequency", title="YOY Weight Distribution in Nursery Hotspots")+
+  theme_economist_white()+
+  scale_fill_gdocs(name="")
+
+slough1_b + facet_grid(OrganismCode~Mo, scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), strip.text.y = element_text(size=18), title = element_text(size=18)) 
+
+# Denverton VS. Montezuma 
+# Standard Lengths
+slough2 <- ggplot(patch2, aes(x=SL, ..count.., fill=Slough)) + 
+  geom_density(alpha=0.3,stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  labs(x="Standard Length (mm)", y="Frequency", title="YOY Size Distribution in Core Hotspots")+
+  theme_economist_white()+
+  scale_fill_gdocs(name="")+
+  xlim(0,125)
+
+slough2 + facet_grid(OrganismCode~Mo, scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), strip.text.y = element_text(size=18), title = element_text(size=18))
+
+slough2_b <- ggplot(patch2_b, aes(x=Biomass, ..count.., fill=Slough)) + 
+  geom_density(alpha=0.3,stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  xlim(0,30)+
+  labs(x="Weight (grams)", y="Frequency", title="YOY Weight Distribution in Hotspot vs. Corridor")+
+  theme_economist_white()+
+  scale_fill_gdocs(name="")
+
+slough2_b + facet_grid(OrganismCode~Mo, scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), strip.text.y = element_text(size=18), title = element_text(size=18)) 
+
+```
+
+```{r, SOUTHWEST vs. NORTHEAST}
+
+## SOUTHWEST
+# Lower Suisun, Goodyear, Cutoff & Spring Branch
+# Standard Lengths
+slough3 <- ggplot(southwest, aes(x=SL, ..count.., color=Slough)) + 
+  geom_density(alpha=0.9, stat="density", position="identity", size=1.25) +
+  scale_x_continuous() +
+  labs(x="Standard Length (mm)", y="Frequency")+
+  theme_economist_white()+
+  scale_colour_colorblind()+
+  xlim(0,150)
+
+slough3 + facet_grid(OrganismCode~Mo, scales="free", labeller = as_labeller(species_names)) + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16)) 
+
+slough3_b <- ggplot(southwest_b, aes(x=Biomass, ..count.., color=Slough)) + 
+  geom_density(alpha=0.3,stat="density", position="identity", size=0.9) +
+  scale_x_continuous() +
+  labs(x="Standard Length (mm)", y="Frequency")+
+  theme_economist_white()+
+  scale_colour_stata()+
+  xlim(0,30)
+
+slough3_b + facet_grid(OrganismCode~Mo, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16)) 
+
+## NORTHEAST
+# Denverton & Nurse & Montezuma
+
+# Standard Lengths
+slough4 <- ggplot(northeast, aes(x=SL, ..count.., color=Slough)) + 
+  geom_density(alpha=0.9, stat="density", position="identity", size=1.25) +
+  scale_x_continuous() +
+  labs(x="Standard Length (mm)", y="Frequency")+
+  theme_economist_white()+
+  scale_colour_stata()+
+  xlim(0,150)
+
+slough4 + facet_grid(OrganismCode~Mo, scales="free", labeller = as_labeller(species_names)) + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16)) 
+
+slough4_b <- ggplot(northeast_b, aes(x=Biomass, ..count.., color=Slough)) + 
+  geom_density(alpha=0.3,stat="density", position="identity", size=0.9) +
+  scale_x_continuous() +
+  labs(x="Standard Length (mm)", y="Frequency")+
+  theme_economist_white()+
+  scale_colour_stata()+
+  xlim(0,30)
+
+slough4_b + facet_grid(OrganismCode~Mo, scales="free") + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16)) 
+
+
+```
+
+# Tables and Plots of Mean SL & Biomass By Month and Year
+```{r}
+
+# splittail table
+mean_sl_tbl_st <- histograms_age0_summer_st %>% 
+  select(Yr, Slough, SL) %>% 
+  group_by(Yr, Slough) %>% 
+  summarize(mean_sl=mean(SL), se=std.error(SL))
+mean_sl_tbl_st
+
+# splittail plot
+mean_sl_st <- ggplot(histograms_age0_summer_st, aes(x=Mo, y=SL, fill=Slough)) + 
+  geom_boxplot()+
+  theme_economist_white()+
+  scale_fill_economist()
+mean_sl_st + facet_grid(Slough~Yr)
+
+habitat_mean_st <- ggplot(mean_sl_tbl_st, aes(x=Yr, y=mean_sl))+
+  geom_line(aes(group=1))+
+  geom_point(size=2)+
+  geom_errorbar(aes(ymin=mean_sl-se, ymax=mean_sl+se))+
+  theme_economist_white()+
+  scale_color_economist()
+
+habitat_mean_st +facet_grid(Slough~.)
+
+```
+
+```{r, Tule perch trends for Peter}
+histograms_tp <- histograms_bind %>% 
+  filter(OrganismCode=="TP")
+
+biomass_tp <- histograms_bind %>% 
+  filter(OrganismCode=="TP")
+
+# tule perch
+# Standard Lengths
+habitat_tp <- ggplot(histograms_tp, aes(x=SL, ..count.., fill=Slough)) + 
+  geom_density(alpha=0.3, stat="density", position="identity") +
+  theme_economist_white()+
+  scale_fill_economist(name="", breaks=c("Slough", "Wetland"), labels=c("Corridor", "Interior Slough"))+
+  labs(x="Standard Length (mm)", y="Frequency")
+habitat_tp + facet_grid(Slough~Yr) + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16))
+
+# Biomass
+habitat_tp_b <- ggplot(biomass_tp, aes(x=Biomass, ..count.., fill=Slough)) + 
+  geom_density(alpha=0.3, stat="density", position="identity") +
+  theme_economist_white()+
+  scale_fill_economist(name="", breaks=c("Slough", "Wetland"), labels=c("Corridor", "Interior Slough"))+
+  labs(x="Weight (grams)", y="Frequency")
+habitat_tp_b + facet_grid(Slough~Yr) + theme(axis.title.x = element_text(size=16), axis.title.y = element_text(size=16))
+
+# Denverton & Cutoff & Spring Branch
+spring <- histograms_tp %>% 
+  filter(Slough=="SpringBranch")
+
+cutoff <- histograms_tp %>% 
+  filter(Slough=="Cutoff")
+
+Denverton <- histograms_tp %>% 
+  filter(Slough=="Denverton")
+
+tuleperch <- bind_rows(spring,cutoff,Denverton)
+
+# Standard Lengths- DV vs. SB vs. CO
+sloughtp <- ggplot(tuleperch, aes(x=SL, ..count.., fill=AgeClass)) + 
+  geom_density(alpha=0.25,stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  labs(x="Standard Length (mm)", y="Frequency")+
+  theme_economist_white()+
+  scale_fill_economist()+
+  scale_x_continuous(breaks=c(50,150))
+
+sloughtp + facet_grid(Slough~.)
+sloughtp + facet_grid(Slough~Yr)
+
+sloughtp + facet_grid(.~Yr)
+sloughtp + facet_grid(Yr~Mo)
+
+```
+
+
+## MYSIDS
+# SLOUGH V. CORRIDOR
+```{r, PLOT by SLOUGH V. CORRIDOR}
+
+# ALL species
+mysids_habitat <- mysids %>% 
+  left_join(veg, by="Slough") %>% 
+  left_join(mean_elev, by=c("Slough")) 
+
+# Slough Type
+habitat_my <- ggplot(mysids_habitat, aes(x=Rank, ..count.., color=Slough)) + 
+  geom_density(alpha=0.3, stat="density", position="identity", size=0.9) +
+  scale_x_continuous() +
+  labs(x="Rank", y="Frequency", title="Mysid Rank Distribution Among Slough Types")+
+  theme_economist_white()+
+  scale_color_stata()
+
+habitat_my + facet_grid(OrganismCode~., scales="free") + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), strip.text.y = element_text(size=18), title = element_text(size=14)) 
+
+# DV vs SB
+# two core patches
+sb_my <- mysids_summer_habitat %>% 
+  filter(Slough=="SpringBranch")
+dv_my <- mysids_summer_habitat %>% 
+  filter(Slough=="Denverton")
+core_my <- bind_rows(sb_my,dv_my)
+
+# Slough Type
+core_mysids <- ggplot(core_my, aes(x=Rank, ..count.., fill=Slough)) +
+  geom_density(alpha=0.3, stat="density", position="identity", size=0.5) +
+  scale_x_continuous() +
+  labs(x="Ranked Category", y="Frequency", title="Mysids")+
+  theme_economist_white()+
+  scale_colour_economist()
+
+core_mysids + facet_grid(OrganismCode~Mo) + theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=18), axis.title.y = element_text(size=18), legend.text = element_text(size=18), strip.text.y = element_text(size=18), title = element_text(size=14)) 
+
+```
+

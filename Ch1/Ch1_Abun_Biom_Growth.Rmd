@@ -5,12 +5,14 @@ date: "March 10, 2017"
 output: html_document
 ---
 ## Purpose of this exercise
-Here I will compare abundance, biomass and growth of YOY fish to answer these 3 questions:
+Here I will compare abundance, biomass and growth of YOY fish to answer the following questions:
 
 (1) Where are hotspots of abundance and biomass?
       - Identify and classify nurseries using plots of mean annual abundance and biomass per slough and/or per year
 (2) When is peak abundance occurring? When is peak growth occurring?
       - Calculate change in mean biomass (=growth) on monthly and annual basis
+      
+Note: Better to answer Question 2 first in order to figure out which months (ex 5-10?) to include in future analyses.
 
 ```{r, load libraries and data}
 # load libraries
@@ -19,13 +21,18 @@ library(ggplot2)
 library(magrittr)
 library(ggthemes)
 
-chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abundance.txt")
-chapter1_biom2 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_BiomassEstimates_Age0.csv")
+chapter1 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data/Data_Ch1_Abundance_1995-2016_Redo.txt")
+chapter1_biom2 <- read_csv("~/GitHub/suisunmarsh/Ch1/Data_output/Data_Ch1_BiomassEstimates_1995-2016_Redo.csv")
 
 # check DFs for NAs or other import errors
 summary(chapter1)
 summary(chapter1_biom2)
+
+
 ```
+
+
+Approach 1. Calculate sums and averages within equations using raw abundance/biomass, rather than CPUE and GPUE.
 
 ### QUESTION 1
 ## HOTSPOT: ABUNDANCE
@@ -33,13 +40,18 @@ summary(chapter1_biom2)
 ```{r}
 ## tidy dataset
 abundance <- chapter1_biom2 %>% 
-  select(Slough, YearMo, YrSlough, Mo, Yr, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, TowMin) %>% 
-  filter(Mo > 4) %>% 
+  select(Slough, YearMo, Mo, Yr, `ST_Age-0`, `SB_Age-0`, `TP_Age-0`, TowMin) %>% 
+  filter(Mo >4) %>% 
+  filter(Mo < 10) %>% 
   group_by(Slough, Yr) %>% 
   summarize(st0_cpue = sum(`ST_Age-0`/ TowMin), sb0_cpue = sum(`SB_Age-0`/ TowMin), tp0_cpue = sum(`TP_Age-0`/ TowMin))
-summary(abundance)
 
-# Group by and Summarize
+abundance[is.na(abundance)] <- 0
+
+summary(abundance)
+View(abundance)
+
+# Calculate annual marsh-wide average (no slough)
 mean_abundance <- abundance %>%
   group_by(Yr) %>% 
   summarize(st0_mean = mean(st0_cpue), sb0_mean = mean(sb0_cpue), tp0_mean = mean(tp0_cpue))
@@ -62,8 +74,8 @@ summary(abundance_joined)
 ```{r, create new columns for pos/neg differences}
 ## Calculate differences between CPUE and marsh-wide average (pos/neg)
 abundance_differences <- abundance_joined %>% 
-  mutate(Splittail = st0_cpue - st0_mean, Striped_Bass = sb0_cpue - sb0_mean, Tule_Perch = tp0_cpue - tp0_mean) %>%
-  select(Slough, Yr, Splittail, Striped_Bass, Tule_Perch) %>% 
+  mutate(SB = sb0_cpue - sb0_mean, ST = st0_cpue - st0_mean, TP = tp0_cpue - tp0_mean) %>%
+  select(Slough, Yr, SB, ST, TP) %>% 
   glimpse
 
 a <- abundance_differences # shorthand
@@ -83,7 +95,7 @@ a$Yr <- as.factor(a$Yr)
 
 # tidyr gather
 a_gathered <- a %>% 
-  gather(Species, Relative_CPUE, Splittail:Tule_Perch)
+  gather(Species, Relative_CPUE, SB:TP)
 View(a_gathered)
 ```
 
@@ -100,21 +112,113 @@ bar <- ggplot(a_gathered, aes(x=Yr, y=Relative_CPUE, fill=Above_Annual_Mean, gui
   scale_fill_economist()+
   guides(fill=FALSE) +
   scale_x_discrete(name= "Year", breaks=c(1995, 2000, 2005, 2010, 2015))+
-  labs(y="Catch Per Minute (Annual Mean=0)", x="", title="Relative Annual Catch of Young-of-Year")
+  labs(y="Catch Per Minute (Annual Mean=0)", x="") #title="Relative Annual Catch of Young-of-Year")
 bar + facet_grid(Species ~ Slough, scales="free") +
   theme(axis.text.x = element_text(angle = -90, hjust = 0.5), axis.ticks = element_line(size = 0.5), axis.ticks.length = unit(0.25, "cm")) +
   theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=14), axis.title.y = element_text(size=12), title = element_text(size=10), axis.line.y = element_line(size=0.5), strip.text = element_text(size=10))
+
+# alternative bar chart
+bar + facet_grid(Species ~ Slough, scales="free") +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0.5), axis.ticks = element_line(size = 0.5), axis.ticks.length = unit(0.25, "cm")) +
+  theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=16), axis.title.y = element_text(size=16))
 ```
+
+
+#Approach 2. Use CPUE and GPUE values in the "Chapter1_biom2" DF instead of calculating from raw abundance.
+
+```{r}
+# Calculate mean at each slough and year combination
+abundance2 <- chapter1_biom2 %>% 
+  select(Slough, YearMo, YrSlough, Mo, Yr, ST0_CPUE, SB0_CPUE, TP0_CPUE) %>% 
+  filter(Mo>4 | Mo<10) %>% 
+  group_by(Slough, Yr) %>% 
+  summarize(st0_cpue = sum(ST0_CPUE), sb0_cpue = sum(SB0_CPUE), tp0_cpue = sum(TP0_CPUE))
+summary(abundance2)
+View(abundance2)
+
+# Calculate annual marsh-wide average
+mean_abundance2 <- abundance2 %>%
+  select(Yr, st0_cpue, sb0_cpue, tp0_cpue) %>% 
+  group_by(Yr) %>% 
+  summarize(st0_mean = mean(st0_cpue), sb0_mean = mean(sb0_cpue), tp0_mean = mean(tp0_cpue))
+View(mean_abundance2)
+summary(mean_abundance2)
+
+abundance_joined2 <- abundance2 %>%
+  inner_join(mean_abundance2, by="Yr")
+summary(abundance_joined2)
+```
+
+```{r, create new columns for pos/neg differences}
+## Calculate differences between CPUE and marsh-wide average (pos/neg)
+abundance_differences2 <- abundance_joined2 %>% 
+  mutate(Splittail = st0_cpue - st0_mean, StripedBass = sb0_cpue - sb0_mean, TulePerch = tp0_cpue - tp0_mean) %>%
+  select(Slough, Yr, Splittail, StripedBass, TulePerch) %>% 
+  glimpse
+
+a2 <- abundance_differences2 # shorthand
+View(a2)
+summary(a2)
+```
+
+```{r, convert dataframe to from wide to long format}
+
+# Following the R Cookbook:
+
+## *http://www.cookbook-r.com/Manipulating_data/Converting_data_between_wide_and_long_format/**
+
+# Convert to factors first
+a2$Slough <- as.factor(a2$Slough)
+a2$Yr <- as.factor(a2$Yr)
+
+# tidyr gather
+a_gathered2 <- a2 %>% 
+  gather(Species, Relative_CPUE, Splittail:TulePerch)
+View(a_gathered2)
+```
+
+Plot relative differences:
+First let's look at disproportionately greater than average cPUE among Slough & Yr for each species,
+Using the a_gathered dataframe, representing differences from the mean (0) for that year.
+
+```{r, mean difference bar charts}
+# with legend
+a_gathered2$Above_Annual_Mean <- a_gathered2$Relative_CPUE >= 0
+bar <- ggplot(a_gathered2, aes(x=Yr, y=Relative_CPUE, fill=Above_Annual_Mean, guide=FALSE)) +
+  geom_bar(stat="identity", position="identity") +
+  theme_economist_white() +
+  scale_fill_economist()+
+  guides(fill=FALSE) +
+  scale_x_discrete(name= "Year", breaks=c(1995, 2000, 2005, 2010, 2015))+
+  labs(y="Catch Per Minute (Annual Mean=0)", x="") #, title="Relative Annual Catch of Young-of-Year")
+bar + facet_grid(Species ~ Slough, scales="free") +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0.5), axis.ticks = element_line(size = 0.5), axis.ticks.length = unit(0.25, "cm")) +
+  theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=16), axis.title.y = element_text(size=16), title = element_text(size=20), axis.line.y = element_line(size=0.5), strip.text = element_text(size=14))
+
+# alternative bar chart
+bar + facet_grid(Species ~ Slough, scales="free") +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0.5), axis.ticks = element_line(size = 0.5), axis.ticks.length = unit(0.25, "cm")) +
+  theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=16), axis.title.y = element_text(size=16))
+
+
+```
+
+
+
 
 ## HOTSPOT: BIOMASS
 
 ```{r}
 ## tidy dataset
 biomass <- chapter1_biom2 %>% 
-  select(Slough, YearMo, YrSlough, Mo, Yr, st0_b_tot, sb0_b_tot, tp0_b_tot, TowMin) %>% 
-  filter(Mo > 4) %>% 
+  select(Slough, YearMo, Mo, Yr, st0_b_tot, sb0_b_tot, tp0_b_tot, TowMin) %>% 
+  filter(Mo>4 ) %>% 
+  filter(Mo<10) %>% 
   group_by(Slough, Yr) %>% 
   summarize(st0_gpue = sum(st0_b_tot/ TowMin), sb0_gpue = sum(sb0_b_tot/ TowMin), tp0_gpue = sum(tp0_b_tot/ TowMin))
+
+biomass[is.na(biomass)] <- 0
+
 summary(biomass)
 
 # Group by and Summarize
@@ -156,33 +260,122 @@ summary(b)
 ## *http://www.cookbook-r.com/Manipulating_data/Converting_data_between_wide_and_long_format/**
 
 # Convert to factors first
-b$Slough <- as.factor(a$Slough)
-b$Yr <- as.factor(a$Yr)
+b$Slough <- as.factor(b$Slough)
+b$Yr <- as.factor(b$Yr)
 
 # tidyr gather
-b_gathered <- a %>% 
-  gather(Species, Relative_CPUE, Splittail:Tule_Perch)
+b_gathered <- b %>% 
+  gather(Species, Relative_GPUE, Splittail:Tule_Perch)
 View(b_gathered)
 ```
 
 Plot relative differences:
-First let's look at disproportionately greater than average cPUE among Slough & Yr for each species,
+First let's look at disproportionately greater than average GPUE among Slough & Yr for each species,
 Using the a_gathered dataframe, representing differences from the mean (0) for that year.
 
 ```{r, mean difference bar charts}
 # with legend
-b_gathered$Above_Annual_Mean <- b_gathered$Relative_CPUE >= 0
-bar <- ggplot(b_gathered, aes(x=Yr, y=Relative_CPUE, fill=Above_Annual_Mean, guide=FALSE)) +
+b_gathered$Above_Annual_Mean <- b_gathered$Relative_GPUE >= 0
+
+bar <- ggplot(b_gathered, aes(x=Yr, y=Relative_GPUE, fill=Above_Annual_Mean, guide=FALSE)) +
   geom_bar(stat="identity", position="identity") +
   theme_economist_white() +
   scale_fill_economist()+
   guides(fill=FALSE) +
   scale_x_discrete(name= "Year", breaks=c(1995, 2000, 2005, 2010, 2015))+
-  labs(y="Catch Per Minute (Annual Mean=0)", x="", title="Relative Annual Biomass of Young-of-Year")
+  labs(y="Grams Per Minute (Annual Mean=0)", x="") #title="Relative Annual Biomass of Young-of-Year")
+bar + facet_grid(Species ~ Slough, scales="free") +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0.5), axis.ticks = element_line(size = 0.5), axis.ticks.length = unit(0.25, "cm")) +
+  theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=14), axis.title.y = element_text(size=12), title = element_text(size=10), axis.line.y = element_line(size=0.5), strip.text = element_text(size=10))
+
+# alternative bar chart
+bar + facet_grid(Species ~ Slough, scales="free") +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0.5), axis.ticks = element_line(size = 0.5), axis.ticks.length = unit(0.25, "cm")) +
+  theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=16), axis.title.y = element_text(size=16))
+```
+
+
+#Approach 2. Use CPUE and GPUE values in the "Chapter1_biom2" DF instead of calculating from raw abundance.
+```{r}
+## tidy dataset
+biomass2 <- chapter1_biom2 %>% 
+  select(Slough, YearMo, Mo, Yr, st0_gpue, sb0_gpue, tp0_gpue) %>% 
+  filter(Mo>4) %>% 
+  filter(Mo<10) %>% 
+  group_by(Slough, Yr) %>% 
+  summarize(st0_gpue = sum(st0_gpue), sb0_gpue = sum(sb0_gpue), tp0_gpue = sum(tp0_gpue))
+View(biomass2)
+
+# Group by and Summarize
+mean_biomass2 <- biomass2 %>%
+  group_by(Yr) %>% 
+  summarize(st0_mean = mean(st0_gpue), sb0_mean = mean(sb0_gpue), tp0_mean = mean(tp0_gpue))
+View(mean_biomass2)
+summary(mean_biomass2)
+```
+
+```{r, join back with chapter1 dataframe}
+
+# Following this lesson:
+
+## **https://ismayc.github.io/moderndiver-book/5-manip.html#joining-data-frames**
+
+# inner join
+biomass_joined2 <- biomass2 %>%
+  inner_join(mean_biomass2, by="Yr")
+summary(biomass_joined2)
+```
+
+```{r, create new columns for pos/neg differences}
+## Calculate differences between CPUE and marsh-wide average (pos/neg)
+biomass_differences2 <- biomass_joined2 %>% 
+  mutate(Splittail = st0_gpue - st0_mean, Striped_Bass = sb0_gpue - sb0_mean, Tule_Perch = tp0_gpue - tp0_mean) %>%
+  select(Slough, Yr, Splittail, Striped_Bass, Tule_Perch) %>% 
+  glimpse
+
+b2 <- biomass_differences2 # shorthand
+View(b2)
+summary(b2)
+```
+
+```{r, convert dataframe to from wide to long format}
+
+# Following the R Cookbook:
+
+## *http://www.cookbook-r.com/Manipulating_data/Converting_data_between_wide_and_long_format/**
+
+# Convert to factors first
+b2$Slough <- as.factor(b2$Slough)
+b2$Yr <- as.factor(b2$Yr)
+
+# tidyr gather
+b_gathered2 <- b2 %>% 
+  gather(Species, Relative_GPUE, Splittail:Tule_Perch)
+View(b_gathered2)
+```
+
+Plot relative differences:
+First let's look at disproportionately greater than average GPUE among Slough & Yr for each species,
+Using the a_gathered dataframe, representing differences from the mean (0) for that year.
+
+```{r, mean difference bar charts}
+# with legend
+b_gathered2$Above_Annual_Mean <- b_gathered2$Relative_GPUE >= 0
+
+bar <- ggplot(b_gathered2, aes(x=Yr, y=Relative_GPUE, fill=Above_Annual_Mean, guide=FALSE)) +
+  geom_bar(stat="identity", position="identity") +
+  theme_economist_white() +
+  scale_fill_economist()+
+  guides(fill=FALSE) +
+  scale_x_discrete(name= "Year", breaks=c(1995, 2000, 2005, 2010, 2015))+
+  labs(y="Grams Per Minute (Annual Mean=0)", x="", title="Relative Annual Biomass of Young-of-Year")
 bar + facet_grid(Species ~ Slough, scales="free") +
   theme(axis.text.x = element_text(angle = -90, hjust = 0.5), axis.ticks = element_line(size = 0.5), axis.ticks.length = unit(0.25, "cm")) +
   theme(plot.title = element_text(hjust = 0.5), axis.title.x = element_text(size=14), axis.title.y = element_text(size=12), title = element_text(size=10), axis.line.y = element_line(size=0.5), strip.text = element_text(size=10))
 ```
+
+
+
 
 ## BAR CHART SUMMARIES: HOTSPOTS for ABUNDANCE & BIOMASS at EACH SLOUGH (AVERAGED OVER TOTAL ANNUAL)
 # Borrow code from Ch1_Abundance file again
@@ -191,7 +384,30 @@ bar + facet_grid(Species ~ Slough, scales="free") +
 ## Calculate average ANNUAL cPUE (21 data points)
 
 abunbiom <- abundance %>%
-  inner_join(biomass, by="YrMoSite")
+  inner_join(biomass, by=c("Slough", "Yr")) %>% 
+  select(Slough, Yr, YrSlough.x, st0_cpue:tp0_cpue, st0_gpue:tp0_gpue) %>% 
+  rename(YrSlough=YrSlough.x)
+
+abunbiom_gathered <- abunbiom %>%
+  select(Slough, Yr, st0_cpue:tp0_cpue) %>% 
+  rename(Splittail=st0_cpue, StripedBass=sb0_cpue, TulePerch=tp0_cpue) %>% 
+  gather(Species, CPUE, Splittail:TulePerch) %>% 
+  unite_("YrSlough", c("Yr","Slough"))
+
+?unite
+
+abunbiom_gathered2 <- abunbiom %>% 
+  select(Slough, Yr, st0_gpue:tp0_gpue) %>% 
+  rename(Splittail=st0_gpue, StripedBass=sb0_gpue, TulePerch=tp0_gpue) %>% 
+  gather(Species, GPUE, Splittail:TulePerch) %>% 
+  unite_("YrSlough", c("Yr","Slough"))
+
+abunbiom_joined <- abunbiom_gathered %>% 
+  inner_join(abunbiom_gathered2, by=c("YrSlough", "Species")) 
+
+abunbiom_joined2 <- abunbiom_joined %>% 
+  write_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abun_Biom_YrSlough.csv")
+
 
 # calculate mean CPUE and SE per slough
 # use plotrix pacakge to calculate SE
@@ -202,5 +418,104 @@ annual_mean_cpue <- abundance %>%
 ```
 
 
+
+
+
+
+
+
+
+
+
+
 ###QUESTION 2. 
 ## 
+
+## PEAK ABUNDANCE 
+```{r, Part A. Means of means}
+head(chapter1_biom2)
+
+# mean abundance by year and month
+peak_abundance <- chapter1_biom2 %>% 
+  select(Yr, Mo, ST0_CPUE, SB0_CPUE, TP0_CPUE) %>% 
+  group_by(Yr, Mo) %>% 
+  summarize(Splittail = mean(ST0_CPUE), StripedBass = mean(SB0_CPUE), TulePerch = mean(TP0_CPUE), Splittail_SE =std.error(ST0_CPUE,na.rm), StripedBass_SE =std.error(SB0_CPUE,na.rm), TulePerch_SE =std.error(TP0_CPUE,na.rm))
+
+peak_abundance_gathered <- peak_abundance %>% 
+  select(Yr, Mo, Splittail:TulePerch) %>% 
+  gather(Species, CPUE, Splittail:TulePerch)
+View(peak_abundance_gathered)
+
+# try filtering out just one species
+peak_abundance_st0 <- peak_abundance_gathered %>% 
+  filter(Species=="Splittail")
+
+# box plot - mean of means
+peak_boxplot <- ggplot(peak_abundance_gathered, aes(x=Mo, y=CPUE, group=Mo)) +
+  geom_boxplot(outlier.size = 0.5) + 
+  scale_x_discrete(name= "Month", breaks=c(1,2,3,4,5,6,7,8,9,10,11,12)) +
+  theme_economist_white() +
+  scale_color_economist()
+peak_boxplot + facet_grid(.~Species, scales = "free")
+```
+
+```{r, means of all data points}
+peak_abundance_all <- chapter1_biom2 %>% 
+  select(Mo, ST0_CPUE, SB0_CPUE, TP0_CPUE) %>% 
+  rename(Splittail = ST0_CPUE, StripedBass = SB0_CPUE, TulePerch=TP0_CPUE ) %>% 
+  gather(Species, CPUE, Splittail:TulePerch)
+View(peak_abundance_all)
+
+# box plot - mean of all data points
+peak_boxplot <- ggplot(peak_abundance_all, aes(x=Mo, y=CPUE, group=Mo)) +
+  geom_boxplot(outlier.size = 0.5) + 
+  scale_x_discrete(name= "Month", breaks=c(1,2,3,4,5,6,7,8,9,10,11,12)) +
+  theme_economist_white() +
+  scale_color_economist()
+peak_boxplot + facet_grid(.~Species, scales = "free")
+
+```
+
+
+
+## PEAK BIOMASS - Part A
+```{r}
+biomass_gpue <- chapter1_biom2 %>% 
+  select(YrMoSite, Yr, Mo, st0_b_tot, sb0_b_tot, tp0_b_tot, TowMin) %>% 
+  group_by(YrMoSite) %>% 
+  mutate(st0_gpue = st0_b_tot/ TowMin, sb0_gpue = sb0_b_tot/ TowMin, tp0_gpue = tp0_b_tot/ TowMin)
+
+biomass_gpue2 <- biomass_gpue %>% 
+  select(YrMoSite, st0_gpue, sb0_gpue, tp0_gpue)
+
+# add GPUE values to dataset and write new file
+chapter1_biom2_joined <- chapter1_biom2 %>% 
+  inner_join(biomass_gpue2, by="YrMoSite")
+
+chapter1_biom2_joined %>% 
+  write_csv("~/GitHub/suisunmarsh/Ch1/Data_Ch1_Abun&Biomass.csv")
+
+# calculate mean biomass by month
+peak_biomass <- biomass_gpue %>% 
+  select(Yr, Mo, st0_gpue, sb0_gpue, tp0_gpue) %>% 
+  group_by(Yr, Mo) %>% 
+  summarize(Splittail = mean(st0_gpue), StripedBass = mean(sb0_gpue), TulePerch = mean(tp0_gpue), Splittail_SE =std.error(st0_gpue,na.rm), StripedBass_SE =std.error(sb0_gpue,na.rm), TulePerch_SE =std.error(tp0_gpue,na.rm))
+
+peak_biomass_gathered <- peak_biomass %>% 
+  select(Yr, Mo, Splittail:TulePerch) %>% 
+  gather(Species, GPUE, Splittail:TulePerch)
+View(peak_biomass_gathered)
+
+
+
+# box plot - mean of means
+peak_boxplot2 <- ggplot(peak_biomass_gathered, aes(x=Mo, y=GPUE, group=Mo)) +
+  geom_boxplot(outlier.size = 0.5) + 
+  scale_x_discrete(name= "Month", breaks=c(1,2,3,4,5,6,7,8,9,10,11,12)) +
+  theme_economist_white() +
+  scale_color_economist()
+peak_boxplot2 + facet_grid(.~Species, scales = "free")
+```
+
+
+
