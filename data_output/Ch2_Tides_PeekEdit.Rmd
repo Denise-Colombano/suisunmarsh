@@ -1,0 +1,98 @@
+---
+title: "Ch2_Tides"
+author: "Denise Colombano"
+date: "July 14, 2017"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(readr)
+library(lubridate)
+```
+
+For lubridate to work, you need the column data to be **character**. The `readr` package is smart and will try to guess for you. So option one is just use the base package.
+
+#### STEP 1. TIDE DATA
+```{r, import Tidal dataset from USGS John Donovan created in June 2017}
+
+# import raw but notice read_csv "guesses" what the data type is for each column...look at what happens in your environment or with `str(tide)` 
+tide1 <- read_csv("../data/phasedata.csv")
+
+# import raw dataset & specify column types
+tide2 <- read_csv("../data/phasedata.csv", col_types = "cddiddccc")
+
+# or just import with read.csv (defaults to factors for the dates)
+tide3 <- read.csv("../data/phasedata.csv")
+
+glimpse(tide1) # notice the data types in the Date.Time and datetime cols
+tz(tide1$datetime) # defaults to UTC
+glimpse(tide2)
+glimpse(tide3)
+
+```
+
+
+## TEST DATE-TIME COLUMNS TO SEE IF THEY QUERY THE CORRECT ROW: "2013-05-30 00:15:00" with Value = 1.38
+```{r}
+## Original df with 2 different columns for date and time combination (try both)
+
+## These work with both tide2 and tide3 dataframes
+
+# query `Date Time` and view output 
+test <- tide2 %>% 
+  filter(`datetime`=="2013-05-30 00:15:00") %>% 
+  glimpse
+
+# query `datetime` and view output
+test1 <- tide2 %>% 
+  filter(datetime=="2013-05-30 00:15:00") %>% 
+  glimpse
+
+## works
+```
+
+
+## TRY CONVERTING TIMEZONES
+```{r, TZ Conversions}
+
+# convert Date Time to POSIXct in local timezone using lubridate
+tide2$datetime_test2 <- as_datetime(tide2$datetime, 
+                                    tz="America/Los_Angeles")
+# convert using the ymd_functions
+tide2$datetime_test3 <- ymd_hms(tide2$datetime, tz="America/Los_Angeles")
+
+# test (these work with both tide2 and tide3)
+test3 <- tide2 %>% 
+  filter(datetime_test3=="2013-05-30 00:15:00")
+
+# All queries return the wrong row "2013-05-30 07:15:00" with Value = 2.26 instead of the first row "2013-05-30 00:15:00" with Value = 1.38 (?)
+```
+
+Option 2 is that whatever way you read the data in, you can then just wrap your call to covert in a `as.character` to make sure it's in the proper format for lubidate to recognize.
+
+```{r ascharacter}
+
+# I use this method a lot:
+
+tide1$datetime2 <- ymd_hms(as.character(paste0(tide1$dates," ", tide1$times)), tz="America/Los_Angeles")
+tz(tide1$datetime2)
+
+tide1 %>% select(datetime2, Value) %>% glimpse
+
+
+```
+
+
+## PLOTTING TESTS - Doesn't plot correct Value= 1.38
+```{r}
+plot <- ggplot(tide1, aes(`Date Time`, `Value`))
+plot + geom_point()
+
+plot_test <- ggplot(tide2, aes(datetime_test2, Value))
+plot_test + geom_point()
+
+```
+
