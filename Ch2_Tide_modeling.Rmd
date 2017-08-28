@@ -1,0 +1,503 @@
+---
+title: "Ch2_Tide_modeling"
+author: "Denise Colombano"
+date: "August 16, 2017"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(circular)
+library(lubridate)
+library(ggthemes)
+library(viridis)
+library(rstan)
+library(StanHeaders)
+library(rethinking)
+```
+
+```{r, Import data}
+
+# Current dataset from 2017
+d <- read.csv("~/GitHub/suisunmarsh/Ch2/Data_output/Ch2_Data_PIT_Counts_&_Tides.csv") %>% 
+  rename(st=ST_Det, sb=SB_Det, tp=TP_Det)
+
+d$datetime <- ymd_hms(d$datetime, tz="America/Los_Angeles")
+str(d)
+summary(d)
+
+test2 <- d %>% 
+  filter(datetime=="2013-06-21 23:15:00") %>% 
+  glimpse # should be a dttm
+
+# create dummy variables for tide8 categories
+d <- d %>% 
+  mutate(low=ifelse(tide8=="Low",1,0)) %>% 
+  mutate(incfld=ifelse(tide8=="Increasing Flood", 1, 0)) %>% 
+  mutate(decfld=ifelse(tide8=="Decreasing Flood", 1, 0)) %>% 
+  mutate(decebb=ifelse(tide8=="Decreasing Ebb", 1, 0)) %>% 
+  mutate(incebb=ifelse(tide8=="Increasing Ebb", 1, 0)) %>% 
+  mutate(maxebb=ifelse(tide8=="Maximum Ebb", 1, 0)) %>% 
+  mutate(maxfld=ifelse(tide8=="Maximum Flood", 1, 0)) %>% 
+  mutate(high=ifelse(tide8=="High", 1, 0)) 
+
+# create dummy variables for tide categories; convert to number to improve computing times
+d <- d %>% 
+  mutate(ebb=ifelse(tide=="Ebb", 1, 0)) %>% 
+  mutate(fld=ifelse(tide=="Flood", 1, 0))
+
+d$ebb <- as.numeric(d$ebb)
+d$fld <- as.numeric(d$fld)
+d$low <- as.numeric(d$low)
+d$high <- as.numeric(d$high)
+
+d$incfld <- as.numeric(d$incfld)
+d$decfld <- as.numeric(d$decfld)
+d$decebb <- as.numeric(d$decebb)
+d$incebb <- as.numeric(d$incebb)
+d$maxebb <- as.numeric(d$maxebb)
+d$maxfld <- as.numeric(d$maxfld)
+
+d$diel <- as.numeric(d$TOD)
+d$months <- month(d$datetime) # lubridate
+d$hours <- hour(d$datetime) # lubridate
+d$time <- hms(d$times)
+
+# create variables for sin/cos to account for monthly variation (=seasonality)
+d$sin_mnth <- sin(d$months/12 * 2 *pi)
+d$cos_mnth <- cos(d$months/12 * 2 *pi)
+
+# create variables for sin/cos to account for daily variation (=TOD effects)
+d$sin_tod <- sin(d$hours/24 * 2 * pi)
+d$cos_tod <- cos(d$hours/24 * 2 * pi)
+
+# convert species detections to numbers
+d$st <- as.numeric(d$st)
+d$tp <- as.numeric(d$tp)
+d$sb <- as.numeric(d$sb)
+
+## factor? doesn't work in models
+
+#d$low <- as.factor(d$low)  
+#d$incfld <- as.factor(d$incfld) 
+#d$decfld <- as.factor(d$decfld) 
+#d$decebb <- as.factor(d$decebb) 
+#d$incebb <- as.factor(d$incebb) 
+#d$maxebb <- as.factor(d$maxebb)  
+#d$maxfld <- as.factor(d$maxfld) 
+#d$high <- as.factor(d$high) 
+
+summary(d)
+
+# create a smaller subset of data to try models out
+det <- d[d$st >0 | d$sb>0 | d$tp>0, ]
+
+# Check old dataset from 2015... wut?
+#o <- read.csv("~/GitHub/suisunmarsh/Ch2/Data/Detections3_Data.csv")
+```
+
+```{r, Prelim plots}
+d_ex <- d %>% 
+  filter(datetime<"2013-07-01 23:15:00") %>% 
+  glimpse
+ggplot(d_ex, aes(x=datetime, y=springmag, color=tide)) +
+  geom_point() 
+
+ggplot(d, aes(x=months, y=springmag, group=months, fill=months))+
+  geom_boxplot()+ theme_minimal()+ scale_x_discrete() + ylab("spring magnitude") + xlab("") + scale_fill_viridis()
+
+```
+
+
+
+# RETHINKING TEXTBOOK CH 11.2.1 ZERO INFLATED POISSON
+```{r, Plotting}
+simplehist(d$st, xlab="splittail detections", lwd=4)
+simplehist(d$sb, xlab="striped bass detections", lwd=4)
+simplehist(d$tp, xlab="tule perch detections", lwd=4)
+```
+
+## SPLITTAIL MODELS: Tide8, Spring Magnitude, TOD
+
+# Null model
+```{r, Model NULL 0}
+dst0 <- data.frame(det["st"])
+m0 <- map2stan(
+  alist(
+    st ~ dzipois(p , lambda ),
+    logit(p) <- ap ,
+    log(lambda) <- al ,
+    ap ~ dnorm(0,1) ,
+    al ~ dnorm(0,10)
+) , data=dst0, warmup=2000, iter=1e4, cores=3, chains=1)
+
+plot(precis(m0))
+show(m0)
+pairs(m0)
+plot(m0)
+```
+
+# Tide8 model with high tide as the default
+```{r, Model 1}
+dst1 <- data.frame(d[c("st", "low", "incfld", "decfld", "decebb", "incebb", "maxebb", "maxfld")])
+m1.st <- map2stan(
+  alist(
+    st ~ dzipois(p, lambda) ,
+    logit(p) <- a0 + ba0*low + bb0*incfld + bc0*decfld + bd0*decebb + be0*incebb + bf0*maxebb + bg0*maxfld ,
+    log(lambda) <- a + ba*low + bb*incfld + bc*decfld + bd*decebb + be*incebb + bf*maxebb + bg*maxfld ,
+    c(a0, ba0, bb0, bc0, bd0, be0, bf0, bg0) ~ dnorm(0,1) ,
+    c(a, ba, bb, bc, bd, be, bf, bg) ~ dnorm(0,10)
+) , data=dst1, warmup=2000, iter=1e4, chains=1, cores=3)
+
+plot(precis(m1.st))
+show(m1.st)
+pairs(m1.st)
+plot(m1.st)
+
+#compare(m0.st, m1.st)
+```
+
+# Tide8 and Spring Magnitude Model
+```{r, Model 2}
+dst2 <- data.frame(d[c("st", "low", "incfld", "decfld", "decebb", "incebb", "maxebb", "maxfld", "springmag")])
+m2.st <- map2stan(
+  alist(
+    st ~ dzipois(p, lambda),
+    logit(p) <- a0 + ba0*low + bb0*incfld + bc0*decfld + bd0*decebb + be0*incebb + bf0*maxebb + bg0*maxfld + bs0*springmag ,
+    log(lambda) <- a + ba*low + bb*incfld + bc*decfld + bd*decebb + be*incebb + bf*maxebb + bg*maxfld + bs*springmag ,
+    c(a0, ba0, bb0, bc0, bd0, be0, bf0, bg0, bs0) ~ dnorm(0,1),
+    c(a, ba, bb, bc, bd, be, bf, bg, bs) ~ dnorm(0,10)
+) , data=dst2, warmup=2000, iter=1e4, chains=1, cores=3)
+
+plot(precis(m2.st))
+show(m2.st)
+pairs(m2.st)
+plot(m2.st)
+
+#compare(m0.st, m1.st, m2.st)
+```
+
+# Tide8, Spring Magnitude and diel Model
+```{r, Model 3}
+dst3 <- data.frame(d[c("st", "low", "incfld", "decfld", "decebb", "incebb", "maxebb", "maxfld", "springmag", "diel")])
+m3.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + ba0*low + bb0*incfld + bc0*decfld + bd0*decebb + be0*incebb + bf0*maxebb + bg0*maxfld + bs0*springmag + bt0*diel ,
+    log(lambda) <- a + ba*low + bb*incfld + bc*decfld + bd*decebb + be*incebb + bf*maxebb + bg*maxfld + bs*springmag + bt*diel ,
+    c(a0, ba0, bb0, bc0, bd0, be0, bf0, bg0, bs0, bt0) ~ dnorm(0,1) ,
+    c(a, ba, bb, bc, bd, be, bf, bg, bs, bt) ~ dnorm(0,10)
+) , data=dst3, warmup=2000, iter=1e4, chains=1, cores=3)
+
+plot(precis(m3.st))
+show(m3.st)
+pairs(m3.st)
+plot(m3.st)
+
+compare(m0, m1.st, m2.st, m3.st)
+```
+
+# Tide4 Categories model
+```{r, Model 4}
+dst4 <- data.frame(d[c("st", "ebb", "fld", "low")])
+m4.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + be0*ebb + bf0*fld + bl0*low ,
+    log(lambda) <- a + be*ebb + bf*fld + bl*low ,
+    c(a0, be0, bf0, bl0) ~ dnorm(0,1) ,
+    c(a, be, bf, bl) ~ dnorm(0,10)
+) , data=dst4, warmup=2000, iter=1e4, cores=3, chains=1)
+
+plot(precis(m4.st))
+show(m4.st)
+pairs(m4.st)
+plot(m4.st)
+```
+
+# Tide4b Categories model with months (SIN/COS)
+```{r, Model 4}
+dst4b <- as.list(d[c("st", "ebb", "fld", "low", "sin_mnth", "cos_mnth")])
+
+m4b.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + be0*ebb + bf0*fld + bl0*low + bs0*sin_mnth + bc0*cos_mnth ,
+    log(lambda) <- a + be*ebb + bf*fld + bl*low + bs*sin_mnth + bc*cos_mnth ,
+    c(a0, be0, bf0, bl0, bs0, bc0) ~ dnorm(0,1) ,
+    c(a, be, bf, bl, bs, bc) ~ dnorm(0,10)
+) , data=dst4b, warmup=2000, iter=1e4, cores=3, chains=1)
+
+plot(precis(m4b.st))
+show(m4b.st)
+pairs(m4b.st)
+plot(m4b.st)
+
+compare(m4.st, m4b.st, m5.st)
+```
+
+# Tide4c Categories model TOD (SIN/COS)
+```{r, Model 4}
+dst4c <- as.list(d[c("st", "ebb", "fld", "low", "sin_tod", "cos_tod")])
+
+m4c.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + be0*ebb + bf0*fld + bl0*low + bs0*sin_tod + bc0*cos_tod ,
+    log(lambda) <- a + be*ebb + bf*fld + bl*low + bs*sin_tod + bc*cos_tod ,
+    c(a0, be0, bf0, bl0, bs0, bc0) ~ dnorm(0,1) ,
+    c(a, be, bf, bl, bs, bc) ~ dnorm(0,10)
+) , data=dst4c, warmup=2000, iter=1e4, cores=3, chains=1)
+
+plot(precis(m4c.st))
+show(m4c.st)
+pairs(m4c.st)
+plot(m4c.st)
+
+compare(m4.st, m4b.st, m4c.st, m5.st)
+```
+
+# Tide4 categories, Spring Magnitude Model (=compare to 4b month)
+```{r, Model 5}
+dst4d <- as.list(d[c("st", "ebb", "fld", "low", "springmag")])
+m4d.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + be0*ebb + bf0*fld + bl0*low + bs0*springmag ,
+    log(lambda) <- a + be*ebb + bf*fld + bl*low + bs*springmag  ,
+    c(a0, be0, bf0, bl0, bs0 ) ~ dnorm(0,1) ,
+    c(a, be, bf, bl, bs ) ~ dnorm(0,10)
+) , data=dst4d, warmup=2000, iter=1e4, cores=3, chains=1)
+
+plot(precis(m4d.st))
+show(m4d.st)
+pairs(m4d.st)
+plot(m4d.st)
+
+compare(m4.st, m4b.st, m4c.st, m4d.st, m5.st, m5b.st)
+```
+
+
+# Tide4 categories, Spring Magnitude and diel Model
+```{r, Model 5}
+dst5 <- data.frame(d[c("st", "ebb", "fld", "low", "diel", "springmag")])
+m5.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + be0*ebb + bf0*fld + bl0*low + bd0*diel + bs0*springmag,
+    log(lambda) <- a + be*ebb + bf*fld + bl*low + bd*diel + bs*springmag,
+    c(a0, be0, bf0, bl0, bd0, bs0) ~ dnorm(0,1) ,
+    c(a, be, bf, bl, bd, bs) ~ dnorm(0,10)
+) , data=dst5, warmup=2000, iter=1e4, cores=3, chains=1)
+
+plot(precis(m5.st))
+show(m5.st)
+pairs(m5.st)
+plot(m5.st)
+
+compare(m4.st, m5.st)
+```
+
+# Tide4 categories, Spring Magnitude and diel Model
+```{r, Model 5}
+dst5b <- as.list(d[c("st", "ebb", "fld", "low", "diel")])
+m5b.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + be0*ebb + bf0*fld + bl0*low + bd0*diel ,
+    log(lambda) <- a + be*ebb + bf*fld + bl*low + bd*diel  ,
+    c(a0, be0, bf0, bl0, bd0 ) ~ dnorm(0,1) ,
+    c(a, be, bf, bl, bd ) ~ dnorm(0,10)
+) , data=dst5b, warmup=2000, iter=1e4, cores=3, chains=1)
+
+plot(precis(m5b.st))
+show(m5b.st)
+pairs(m5b.st)
+plot(m5b.st)
+
+results <- compare(m4.st, m4b.st, m4c.st, m5.st, m5b.st) 
+results
+```
+
+# Tide4 categories, Spring Magnitude and diel Model
+```{r, Model 5}
+dst5 <- data.frame(d[c("st", "ebb", "fld", "low", "diel", "springmag")])
+m5c.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + be0*ebb + bf0*fld + bl0*low + bds0*diel*springmag ,
+    log(lambda) <- a + be*ebb + bf*fld + bl*low + bds*diel*springmag ,
+    c(a0, be0, bf0, bl0, bds0) ~ dnorm(0,1) ,
+    c(a, be, bf, bl, bds) ~ dnorm(0,10)
+) , data=dst5, warmup=2000, iter=1e4, cores=3, chains=1)
+
+plot(precis(m5c.st))
+show(m5c.st)
+pairs(m5c.st)
+plot(m5c.st)
+
+compare(m5.st, m5b.st, m5c.st)
+```
+
+# Tide4 Categories model with months (SIN/COS), springmag and diel
+```{r, Model 4}
+dst4b <- as.list(d[c("st", "ebb", "fld", "low", "sin_mnth", "cos_mnth")])
+
+m4b.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + be0*ebb + bf0*fld + bl0*low + bs0*sin_mnth + bc0*cos_mnth ,
+    log(lambda) <- a + be*ebb + bf*fld + bl*low + bs*sin_mnth + bc*cos_mnth ,
+    c(a0, be0, bf0, bl0, bs0, bc0) ~ dnorm(0,1) ,
+    c(a, be, bf, bl, bs, bc) ~ dnorm(0,10)
+) , data=dst4b, warmup=2000, iter=1e4, cores=3, chains=1)
+
+plot(precis(m4b.st))
+show(m4b.st)
+pairs(m4b.st)
+plot(m4b.st)
+
+compare(m4.st, m4b.st, m5.st)
+```
+
+
+
+# Spring Magnitude and Diel Model
+```{r, Model 6}
+dst6 <- data.frame(det[c("st", "diel", "springmag")])
+m6.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + bd0*diel + bs0*springmag,
+    log(lambda) <- a + bd*diel + bs*springmag,
+    c(a0, bd0, bs0) ~ dnorm(0,1) ,
+    c(a, bd, bs) ~ dnorm(0,10)
+) , data=dst6, warmup=2000, iter=1e4, chains=1, cores=3)
+
+plot(precis(m6.st))
+show(m6.st)
+pairs(m6.st)
+plot(m6.st)
+
+compare(m0, m1.st, m2.st, m3.st, m5.st, m6.st)
+```
+
+# Spring Magnitude Model
+```{r, Model 7}
+dst7 <- data.frame(det[c("st", "springmag")])
+m7.st <- map2stan(
+  alist(
+    st ~ dzipois(p,lambda),
+    logit(p) <- a0 + bs0*springmag ,
+    log(lambda) <- a + bs*springmag ,
+    c(a0, bs0) ~ dnorm(0,1) ,
+    c(a, bs) ~ dnorm(0,10)
+) , data=dst7, warmup=2000, iter=1e4, chains=1, cores=3)
+
+plot(precis(m7.st))
+show(m7.st)
+pairs(m7.st)
+plot(m7.st)
+
+compare(m0, m1.st, m2.st, m3.st, m5.st, m6.st, m7.st)
+```
+
+```{r, Model 4b}
+#dst4b <- as.matrix(d[c("st", "springmag")])
+#m4b.st <- map2stan(
+ # alist(
+  #  st ~ dzipois(p,lambda),
+   # logit(p) <- a0 + bs0*springmag ,
+    #log(lambda) <- a + bs*springmag ,
+    #c(a0, bs0) ~ dnorm(0,1) ,
+    #c(a, bs) ~ dnorm(0,10)
+#) , data=list(dst4b), warmup=2000, iter=1e4, chains=1)
+
+#precis(m4b.st)
+#show(m4b.st)
+#pairs(m4b.st)
+#plot(m4b.st)
+
+```
+
+
+
+
+## STRIPER MODELS: Tide8, Spring Magnitude, TOD
+
+# Null model
+```{r, Model 1}
+dsb0 <- data.frame(d["sb"])
+m0.sb <- map2stan(
+  alist(
+    sb ~ dzipois(p , lambda ),
+    logit(p) <- ap ,
+    log(lambda) <- al ,
+    ap ~ dnorm(0,1) ,
+    al ~ dnorm(0,10)
+) , data=dsb0, warmup=2000, iter=1e4, chains=1)
+
+precis(m0.sb)
+show(m0.sb)
+pairs(m0.sb)
+plot(m0.sb)
+```
+
+# Tide8 model
+```{r, Model 2}
+dsb2 <- data.frame(d[c("sb", "low", "incfld", "decfld", "decebb", "incebb", "maxebb", "maxfld")])
+m2.sb <- map2stan(
+  alist(
+    sb ~ dzipois(p,lambda),
+    logit(p) <- a0 + ba*low + bb*incfld + bc*decfld + bd*decebb + be*incebb + bf*maxebb + bg*maxfld ,
+    log(lambda) <- a ,
+    c(a0,a) ~ dnorm(0,10)
+) , data=dsb2, warmup=2000, iter=1e4, chains=1)
+
+precis(m2.sb)
+show(m2.sb)
+pairs(m2.sb)
+plot(m2.sb)
+```
+
+# Tide8 and Spring Magnitude Model
+```{r, Model 3}
+dsb3 <- data.frame(d[c("sb", "low", "incfld", "decfld", "decebb", "incebb", "maxebb", "maxfld", "springmag")])
+m3.sb <- map2stan(
+  alist(
+    sb ~ dzipois(p,lambda),
+    logit(p) <- a0 + ba0*low + bb0*incfld + bc0*decfld + bd0*decebb + be0*incebb + bf0*maxebb + bg0*maxfld + bs0*springmag,
+    log(lambda) <- a + ba*low + bb*incfld + bc*decfld + bd*decebb + be*incebb + bf*maxebb + bg*maxfld + bs*springmag,
+    c(a0, ba0, bb0, bc0, bd0, be0, bf0, bg0, bs0, a, ba, bb, bc, bd, be, bf, bg, bs) ~ dnorm(0,10)
+) , data=dsb3, warmup=2000, iter=1e4, chains=1)
+
+precis(m3.sb)
+show(m3.sb)
+pairs(m3.sb)
+plot(m3.sb)
+```
+
+# Tide8, Spring Magnitude and TOD Model
+```{r, Model 4}
+dsb4 <- data.frame(d[c("sb", "low", "incfld", "decfld", "decebb", "incebb", "maxebb", "maxfld", "springmag", "TOD")])
+m4.sb <- map2stan(
+  alist(
+    sb ~ dzipois(p,lambda),
+    logit(p) <- a0 + ba0*low + bb0*incfld + bc0*decfld + bd0*decebb + be0*incebb + bf0*maxebb + bg0*maxfld + bs0*springmag + bt0*TOD,
+    log(lambda) <- a + ba*low + bb*incfld + bc*decfld + bd*decebb + be*incebb + bf*maxebb + bg*maxfld + bs*springmag + bt*TOD,
+    c(a0, ba0, bb0, bc0, bd0, be0, bf0, bg0, bs0, a, ba, bb, bc, bd, be, bf, bg, bs, bt) ~ dnorm(0,10)
+) , data=dsb4, warmup=2000, iter=1e4, chains=1)
+
+precis(m4.sb)
+show(m4.sb)
+pairs(m4.sb)
+plot(m4.sb)
+```
+
+```{r}
+
+```
+
