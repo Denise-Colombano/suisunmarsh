@@ -1,0 +1,384 @@
+---
+title: "Tide_spp_joint_modeling_models"
+author: "Denise Colombano"
+date: "February 17, 2018"
+output: html_document
+---
+# TOC
+```{r}
+# X Null model
+# 0 Species and ID only
+# 1 + TOD
+# 2 + Month
+# 3 + TOD + Month
+# 4 + PAR
+# 5 + stages
+# 6 + dranges
+# 7 + TOD + Month + limb
+# 8 + stages + limb
+# 9 + dranges + limb
+# 10 + TOD + stages + limb
+# 11 + TOD + dranges + limb
+# 12 + PAR + stages + limb
+# 13 + PAR + dranges + limb
+```
+
+## Models
+### m0 Null
+```{r}
+# null model 
+dx <- df["detections"]
+mxprep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 ,
+    log(lambda) <- a ,
+    c(a0, a) ~ dnorm(0,1) 
+) , data=dx, iter=2 )
+
+mx <- resample( mxprep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(mx)
+show(mx)
+pairs(mx)
+```
+
+### m0 Species, ID
+```{r}
+# null model plus species and ID as varying effects
+d0 <- df[c("detections", "logdays", "ID", "Species", "minoff")]
+m0prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ) ,
+    logit(p) <- a0 + bm0*minoff ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] ,
+    c(a0, a, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d0), iter=2 )
+
+m0 <- resample( m0prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m0)
+show(m0)
+pairs(m0)
+
+compare(mx,m0)
+```
+
+### m1 TOD
+```{r}
+d1 <- df[c("detections", "logdays", "ID", "Species", "sin_tod", "cos_tod", "minoff")]
+m1prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bst*sin_tod + bct*cos_tod ,
+    c(a0, a, bst, bct, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d1), iter=2 )
+
+m1 <- resample( m1prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m1)
+show(m1)
+pairs(m1)
+```
+
+### m2 Month
+```{r}
+d2 <- df[c("detections", "logdays", "ID", "Species", "sin_mnth", "cos_mnth", "minoff")]
+m2prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bsm*sin_mnth + bcm*cos_mnth ,
+    c(a0, a, bsm, bcm, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d2), iter=2 )
+
+m2 <- resample( m2prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m2)
+show(m2)
+pairs(m2)
+```
+
+### m3 TOD, Month
+```{r}
+d3 <- df[c("detections", "logdays", "ID", "Species", "sin_tod", "cos_tod", "sin_mnth", "cos_mnth", "minoff")]
+m3prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bst*sin_tod + bct*cos_tod + bsm*sin_mnth + bcm*cos_mnth ,
+    c(a0, a, bst, bct, bsm, bcm, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d3), iter=2 )
+
+m3 <- resample( m3prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m3)
+show(m3)
+pairs(m3)
+```
+
+### m4 PAR
+```{r}
+d4 <- df[c("detections", "logdays", "ID", "Species", "minoff", "pars")]
+m4prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ) ,
+    logit(p) <- a0 + bm0*minoff ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bp*pars,
+    c(a0, a, bp, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d4), iter=2 )
+
+m4 <- resample( m4prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m4)
+show(m4)
+pairs(m4)
+```
+
+### m5 Stage
+```{r}
+d5 <- df[c("detections", "logdays", "ID", "Species", "stages", "minoff")]
+m5prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages ,
+    c(a0, a, bs, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d5), iter=2 )
+
+m5 <- resample( m5prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m5)
+show(m5)
+pairs(m5)
+
+compare(mx,m0,m1, m2, m3, m4, m5)
+```
+
+### m6 Drange
+```{r}
+d6 <- df[c("detections", "logdays", "ID", "Species", "dranges", "minoff")]
+m6prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges ,
+    c(a0, a, bd, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d6), iter=2 )
+
+m6 <- resample( m6prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m6)
+show(m6)
+pairs(m6)
+
+compare(mx,m0,m1, m2, m3, m4, m5, m6)
+```
+
+### m7 TOD, Month, Limb
+```{r}
+d7 <- df[c("detections", "logdays", "ID", "Species", "sin_tod", "cos_tod", "sin_mnth", "cos_mnth", "minoff", "limb")]
+m7prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bst*sin_tod + bct*cos_tod + bsm*sin_mnth + bcm*cos_mnth + bl*limb ,
+    c(a0, a, bst, bct, bsm, bcm, bl, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d7), iter=2 )
+
+m7 <- resample( m7prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m7)
+show(m7)
+pairs(m7)
+```
+
+### m8 Stage, Limb
+```{r}
+d8 <- df[c("detections", "logdays", "ID", "Species", "stages", "minoff", "limb")]
+m8prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*limb ,
+    c(a0, a, bs, bl, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d8), iter=2 )
+
+m8 <- resample( m8prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m8)
+show(m8)
+pairs(m8)
+
+compare(mx,m0,m1, m2, m3, m4, m5, m6, m7, m8)
+```
+
+### m9 Drange, Limb
+```{r}
+d9 <- df[c("detections", "logdays", "ID", "Species", "dranges", "minoff", "limb")]
+m9prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*limb ,
+    c(a0, a, bd, bl, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d9), iter=2 )
+
+m9 <- resample( m9prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m9)
+show(m9)
+pairs(m9)
+
+compare(mx,m0,m1, m2, m3, m4, m5, m6, m7, m8, m9)
+```
+
+### m10 TOD, Stage, Limb
+```{r}
+d10 <- df[c("detections", "logdays", "ID", "Species", "stages", "limb", "sin_tod", "cos_tod", "minoff")]
+m10prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bg*stages + bl*limb + bst*sin_tod + bct*cos_tod,
+    c(a0, a, bg, bl, bst, bct, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d10), iter=2 )
+
+m10 <- resample( m10prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m10)
+show(m10)
+pairs(m10)
+```
+
+### m11 TOD, Drange, Limb
+```{r}
+d11 <- df[c("detections", "logdays", "ID", "Species", "dranges", "limb", "sin_tod", "cos_tod", "minoff")]
+m11prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*limb + bs*sin_tod + bc*cos_tod,
+    c(a0, a, bd, bl, bs, bc, bm0) ~ dnorm(0,1) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d11), iter=2 )
+
+m11 <- resample( m11prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m11)
+show(m11)
+pairs(m11)
+```
+
+### m12 PAR, Stage, Limb
+```{r}
+d12 <- df[c("detections", "logdays", "ID", "Species", "stages", "limb", "pars", "minoff")]
+m12prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ),
+    logit(p) <- a0 + bm0*minoff,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bg*stages + bl*limb + bp*pars,
+    c(a0, a, bg, bl, bp, bm0) ~ dnorm(0,10) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d12), iter=2 )
+
+m12 <- resample( m12prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m12)
+show(m12)
+pairs(m12)
+```
+
+### m13 PAR, Drange, Limb
+```{r}
+d13 <- df[c("detections", "logdays", "ID", "Species", "dranges", "limb", "pars", "minoff")]
+m13prep <- map2stan(
+  alist(
+    detections ~ dzipois(p , lambda ) ,
+    logit(p) <- a0 + bm0*minoff ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*limb + bp*pars ,
+    c(a0, a, bd, bl, bp, bm0) ~ dnorm(0,10) ,
+    a_id[ID] ~ dnorm( 0 , sigma_id ) ,
+    a_species[Species] ~ dnorm( 0 , sigma_species ) ,
+    sigma_id ~ dcauchy(0,1) ,
+    sigma_species ~ dcauchy(0,1) 
+) , data=compose_data(d13), iter=2 )
+
+m13 <- resample( m13prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
+
+precis(m13)
+show(m13)
+pairs(m13)
+```
+
+
+```{r, save models}
+#mx %>% saveRDS("Modeling/Models/mx.rds")
+#m0 %>% saveRDS("Modeling/Models/m0.rds")
+#m1 %>% saveRDS("Modeling/Models/m1.rds")
+#m2 %>% saveRDS("Modeling/Models/m2.rds")
+#m3 %>% saveRDS("Modeling/Models/m3.rds")
+#m4 %>% saveRDS("Modeling/Models/m4.rds")
+#m5 %>% saveRDS("Modeling/Models/m5.rds")
+#m6 %>% saveRDS("Modeling/Models/m6.rds")
+#m7 %>% saveRDS("Modeling/Models/m7.rds")
+#m8 %>% saveRDS("Modeling/Models/m8.rds")
+#m9 %>% saveRDS("Modeling/Models/m9.rds")
+#m10 %>% saveRDS("Modeling/Models/m10.rds")
+#m11 %>% saveRDS("Modeling/Models/m11.rds")
+#m12 %>% saveRDS("Modeling/Models/m12.rds")
+#m13 %>% saveRDS("Modeling/Models/m13.rds")
+```
+
+
