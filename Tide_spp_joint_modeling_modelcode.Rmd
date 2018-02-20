@@ -281,8 +281,8 @@ m10prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
     logit(p) <- a0 + bm0*minoff,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bg*stages + bl*limb + bst*sin_tod + bct*cos_tod,
-    c(a0, a, bg, bl, bst, bct, bm0) ~ dnorm(0,1) ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*limb + bst*sin_tod + bct*cos_tod,
+    c(a0, a, bs, bl, bst, bct, bm0) ~ dnorm(0,1) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
     sigma_id ~ dcauchy(0,1) ,
@@ -325,8 +325,8 @@ m12prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
     logit(p) <- a0 + bm0*minoff,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bg*stages + bl*limb + bp*pars,
-    c(a0, a, bg, bl, bp, bm0) ~ dnorm(0,10) ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*limb + bp*pars,
+    c(a0, a, bs, bl, bp, bm0) ~ dnorm(0,10) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
     sigma_id ~ dcauchy(0,1) ,
