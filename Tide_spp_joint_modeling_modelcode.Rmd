@@ -4,6 +4,45 @@ author: "Denise Colombano"
 date: "February 17, 2018"
 output: html_document
 ---
+```{r, load libraries}
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(readr)
+
+library(rstan)
+library(StanHeaders)
+library(parallel)
+library(rethinking)
+library(tidybayes)
+library(tidybayes.rethinking)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+
+# Reimport data - FINAL MODEL DATA SET
+```{r, reimport}
+# reimport
+df <- read_csv("Data/Joint_spp/Ch2_modeling_dataset.csv") %>% 
+  arrange(datetime)
+summary(df)
+
+df$datetime <- as_datetime(df$datetime, tz="America/Los_Angeles")
+
+# coerce index for species codes ST, SB, TP and sid
+df$Species <- coerce_index(df$Species)
+df$ID <- coerce_index(df$ID)
+```
+
+```{r, subset data for pilot models}
+d_sub <- df %>% 
+  filter(dat>"2014-09-03") %>% 
+  filter(dat<"2014-10-06")
+```
+
+
 # TOC
 ```{r}
 # X Null model
@@ -280,8 +319,8 @@ d10 <- df[c("detections", "logdays", "ID", "Species", "stages", "limb", "sin_tod
 m10prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
-    logit(p) <- a0 + bm0*minoff,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*limb + bst*sin_tod + bct*cos_tod,
+    logit(p) <- a0 + bm0*minoff ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*limb + bst*sin_tod + bct*cos_tod ,
     c(a0, a, bs, bl, bst, bct, bm0) ~ dnorm(0,1) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
@@ -291,7 +330,7 @@ m10prep <- map2stan(
 
 m10 <- resample( m10prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
 
-precis(m10)
+plot(precis(m10))
 show(m10)
 pairs(m10)
 ```
@@ -302,9 +341,9 @@ d11 <- df[c("detections", "logdays", "ID", "Species", "dranges", "limb", "sin_to
 m11prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
-    logit(p) <- a0 + bm0*minoff,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*limb + bs*sin_tod + bc*cos_tod,
-    c(a0, a, bd, bl, bs, bc, bm0) ~ dnorm(0,1) ,
+    logit(p) <- a0 + bm0*minoff ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*limb + bst*sin_tod + bct*cos_tod ,
+    c(a0, a, bd, bl, bst, bct, bm0) ~ dnorm(0,1) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
     sigma_id ~ dcauchy(0,1) ,
@@ -316,6 +355,8 @@ m11 <- resample( m11prep , chains=2 , cores=2 , warmup=1000 , iter=3000 )
 precis(m11)
 show(m11)
 pairs(m11)
+
+compare(m10,m11)
 ```
 
 ### m12 PAR, Stage, Limb
@@ -375,7 +416,7 @@ pairs(m13)
 #m7 %>% saveRDS("Modeling/Models/m7.rds")
 #m8 %>% saveRDS("Modeling/Models/m8.rds")
 #m9 %>% saveRDS("Modeling/Models/m9.rds")
-#m10 %>% saveRDS("Modeling/Models/m10.rds")
+m10 %>% saveRDS("Modeling/Models/m10.rds")
 #m11 %>% saveRDS("Modeling/Models/m11.rds")
 #m12 %>% saveRDS("Modeling/Models/m12.rds")
 #m13 %>% saveRDS("Modeling/Models/m13.rds")
