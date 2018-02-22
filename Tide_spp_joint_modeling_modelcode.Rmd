@@ -71,6 +71,7 @@ d_sub <- df %>%
 ## PAR: Photosynthetically active radiation (standardized, fixed)
 ## stages: Water depth (standardized, fixed)
 ## dranges: Diurnal range in water depth (standardized, fixed)
+## asclimb: Ascending limb of tide =1 and descending limb=0 (factor, fixed)
 ## Species: Striped bass (2); Splittail (3); Tule Perch (4); NA (1) (Index 1-4, random effect for partial pooling)
 ## ID: PIT Tag Code for a tagged individual (Index 1-51, random effect)
 ## minoff: Minutes during a 15-min interval that the system power turned off (zero-generating process)
