@@ -1,0 +1,320 @@
+---
+title: "Tide_spp_joint_modeling"
+author: "Denise Colombano"
+date: "February 21, 2018"
+output: 
+  html_document: 
+    fig_caption: yes
+    toc: yes
+---
+
+```{r, load libraries}
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(readr)
+library(here)
+
+library(rstan)
+library(StanHeaders)
+library(parallel)
+library(rethinking)
+
+library(cowplot)
+library(ggthemes)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+```{r, tidybayes!!!}
+library(tidybayes)
+library(tidybayes.rethinking)
+#library(brms) # make sure to detach rethinking
+```
+
+# TOC
+```{r}
+# Data tidied and updated in Feb 2018
+# 1- Detection data: Import tidy dataframe (joint species format) - 1706 rows
+# 2- Tagging data: Import tidy dataframe (unique IDs, tag dates, etc.)
+# 3- Tide data: Tidy dataset from "Ch2_Circular_stats" Rmd
+# 4- 
+```
+
+
+
+# 1 Detection data
+```{r, import detection data}
+# import updated file generated in November 2017 (has individual pit codes)
+# this tidy file was created in the Rmd "Ch2_DetectionSummaries" 
+# and it is an amalgamation of data straight my Access dB
+# the logtag datetime is already corrected after 12/14/2014
+dets <- read_csv("Data/Joint_spp/Ch2_Data_Detections_Captures_Merged_Updt.csv") %>% 
+  glimpse()
+
+# TIDY
+dets2 <- dets %>%
+  rename(detections=sumdet, tagdate=dates)
+
+dets2$PITTAGCODE <- as.character(dets2$PITTAGCODE)
+dets2$enddate <- as_date("2015-03-28")
+dets2$diffdays <- as.integer(dets2$enddate - dets2$tagdate)
+dets2$logdays <- log(dets2$diffdays)
+
+View(dets2)
+#rm(dets)
+
+dets2 <- dets2 %>%
+  rename(datetime=datetime15) # go back
+
+det_summary <- dets2 %>% 
+  group_by(Species) %>% 
+  summarize(counts=sum(detections))
+```
+
+# 2 Tagging data
+```{r, import tagging data}
+tags <- read_csv("Data/Joint_spp/Ch2_Data_PITTAGCODE_Tidied.csv")
+
+# TIDY
+tags$PITTAGCODE <- as.character(tags$PITTAGCODE)
+
+View(tags)
+
+tag_summary <- tags %>% 
+  group_by(SPECIES) %>% 
+  summarize(`Mean SL (mm)`=mean(SL), n=n(), sd=sd(SL), se=sd/sqrt(n))
+```
+
+# 3 Tide data
+```{r, import tide data}
+tide <- read_csv("Data/Joint_spp/Ch2_TidalTrend_data_2018_Categories.csv") %>% 
+  arrange(datetime)
+tide$datetime <- as_datetime(tide$datetime, tz="America/Los_Angeles")
+  
+# filter out time period of interest
+tide <- tide %>% 
+  filter(datetime>"2013-06-21 00:00:00") %>% 
+  filter(datetime<"2015-03-28 17:00:00")
+
+# remove outliers
+tide2 <- tide %>%
+  filter(stage>"0.5") %>% 
+  filter(!is.na(drange)) %>% 
+  filter(!is.na(dinequality))
+
+summary(tide2)
+
+# TIDY
+# lubridate transformations
+tide2$dat <- date(tide2$datetime)
+
+d <- tide2
+
+# STANDARDIZE PREDICTOR VARIABLES
+d$stages <- (d$stage - mean(d$stage))/sd(d$stage)
+d$dranges <- (d$drange - mean(d$drange))/sd(d$drange)
+d$dinequalitys <- (d$dinequality - mean(d$dinequality))/ sd(d$dinequality)
+d$dlows <- (d$dlow - mean(d$dlow))/sd(d$dlow)
+
+# create dummy variable for ascending limb=TRUE=1
+d <- d %>% 
+  mutate(asclimb=if_else(limb_cat=="ascending", 1, 0))
+
+# check nas
+nas_din <- d %>% 
+  filter(is.na(dinequality))
+
+summary(d)
+
+# CREATE CIRCULAR DATA
+
+d$months <- month(d$datetime) # lubridate
+d$hours <- hour(d$datetime) # lubridate
+
+# create variables for sin/cos to account for monthly variation (=seasonality)
+d$sin_mnth <- sin(d$months/12 * 2 *pi)
+d$cos_mnth <- cos(d$months/12 * 2 *pi)
+
+# create variables for sin/cos to account for daily variation (=TOD effects)
+d$sin_tod <- sin(d$hours/24 * 2 * pi)
+d$cos_tod <- cos(d$hours/24 * 2 * pi)
+
+#d %>% write_csv("Data/Joint_spp/Ch2_TidalTrend_data_2018_Cat_Tidied.csv")
+```
+
+# 4 System power data
+```{r, PIT tag array on/off, tidy it and join to main df}
+#power <- read_csv("Data_output/Ch2_PIT_array_off_final.csv") %>%
+ # rename(datetime15=intstart)
+#View(power)
+
+# first get column of all datetimes from dt_join
+#stamp <- dt_join %>%
+ # select(datetime) %>% 
+  #rename(datetime15=datetime)
+
+# join to system power dataset generated from on/off analysis
+#power_join <- stamp %>%
+ # full_join(power,by="datetime15") %>% 
+ # arrange(datetime15)
+
+#power_join[is.na(power_join)] <- 0
+
+#summary(power_join)
+
+# export to excel and manually drag/drop OFF for intervals in between OFF/ON
+#power_join %>% write.csv("Data_output/Ch2_PIT_array_power_joined.csv")
+
+# results in "updt" file that has manually fixed OFF intervals - do not delete!
+```
+
+### Calculate "minoff" for use in ZIP models
+```{r, reimport power updt}
+# reimport manually revised version in order to exclude periods where system power was off for >15 min
+#power_updt <- read_csv("Data_output/Ch2_PIT_array_power_joined_updt.csv") %>% 
+ #filter(is.na(timeoff_updt)) # get rid of 900s - double check (yes)- removes 7682 rows
+
+# lubridate to create minutes power off (to match fish data)
+#power_updt$datetime15 <- mdy_hm(power_updt$datetime15, tz="America/Los_Angeles")
+#power_updt$secoff <- seconds(power_updt$timeoff_sec)
+#power_updt$minoff <- as.numeric(power_updt$timeoff_sec/60)
+
+#power_final <- power_updt %>% select(datetime15, minoff)
+
+#summary(power_final)
+
+# write a file that can be used for zero-inflating processes in ZIP models
+#power_final %>% write_csv("Data_output/Ch2_PIT_array_minoff_modelterm.csv")
+```
+
+### Reimport power tidy
+```{r}
+# reimport and join to main dataframe
+power <- read_csv("Data_output/Ch2_PIT_array_minoff_modelterm.csv")
+power$datetime15 <- as_datetime(power$datetime15,  tz="America/Los_Angeles")
+
+power <- power %>% 
+  rename(datetime=datetime15) %>% 
+  filter(datetime>"2013-06-21 00:00:00") %>% 
+  arrange()
+```
+
+# 5A Join tide, power
+```{r, Be vewy vewy careful!}
+# take all the datetimes where the unit was ON and join with associated tide data
+# power on -- 40,067 rows
+# tide data (d) -- 61,768 rows
+# between the two dataframes there are 39,867 rows where there is both happening
+
+power_on_tides <- power %>%
+  left_join(d, by="datetime") %>% 
+  filter(!is.na(stage))
+
+summary(power_on_tides)
+```
+
+# 5B Join detections
+```{r, join tide-power dataset with detections}
+joinleft <- power_on_tides %>% 
+  left_join(dets2, by="datetime") %>%
+  filter(!is.na(datetime)) %>% 
+  mutate(detections=ifelse(is.na(detections), 0, detections)) %>% 
+  mutate(ID=ifelse(is.na(ID), 0, ID)) %>% 
+  mutate(CapSL=ifelse(is.na(CapSL), 0, CapSL)) %>% 
+  select(datetime:dinequality, limb_cat:asclimb, Species, ID, detections, CapSL, logdays, sin_tod, cos_tod, sin_mnth, cos_mnth)
+
+df <- joinleft
+summary(df)
+
+checkdets <- df %>% 
+  filter(detections>0) %>% 
+  distinct() %>% 
+  filter(is.na(minoff))
+
+# replace NAs with 0s
+df[is.na(df)] <- 0
+
+summary(df)
+
+df %>% group_by(Species) %>% summarize(n())
+
+## caveat: this did throw out 5 data points where tide was not measured but fish were detected. In the future, can estimate the depth at those points by looking at neighboring tidal data. Backtrack by redoing the joins as full instead of left joins and "checkdets" will equal 5-- see below.
+
+#joinall <- power_on_tides %>%
+#  full_join(dets2, by="datetime") %>% 
+ # mutate(detections=ifelse(is.na(detections), 0, detections))
+
+#checkdetsall <- joinall %>% 
+ # filter(detections>0) %>% 
+  #distinct() %>% 
+  #filter(is.na(minoff))
+```
+
+
+```{r, prep dataframe for models}
+# coerce index for species codes ST, SB, TP and sid
+df$Species <- coerce_index(df$Species)
+df$ID <- coerce_index(df$ID)
+
+summary(df)
+
+# written on 2-21-18
+#df %>% write_csv("Data/Joint_spp/Ch2_modeling_dataset.csv")
+```
+
+# Reimport data - FINAL MODEL DATA SET
+```{r, reimport}
+# reimport
+df <- read_csv("Data/Joint_spp/Ch2_modeling_dataset.csv")
+```
+
+# Subset data
+```{r, subset data to run quickly and adjust priors, echo=FALSE}
+# Subset: two weeks 
+d_sub <- df %>% 
+  filter(dat>"2014-09-03") %>% 
+  filter(dat<"2014-10-06")
+
+glimpse(d_sub)
+summary(d_sub)
+
+# export data to ask about df structure
+example_df <- d_sub %>% 
+ select(datetime,stages,dranges,detections,Species, ID, logdays, sin_tod, cos_tod) 
+
+#write_csv(example_df, "examplefish.csv")
+
+# reimport
+ex_df <- read_csv("examplefish.csv")
+
+# replace NAs with 0s
+ex_df[is.na(ex_df)] <- 0
+
+ex_df$Species <- coerce_index(ex_df$Species)
+ex_df$ID <- coerce_index(ex_df$ID)
+```
+
+# MODEL PLOT CODE
+
+
+```{r}
+plot(precis(m3))
+
+post <- extract.samples(m3)
+
+pch <- ifelse(d3$Species==1, 16, ifelse(d3$Species==2, 10, ifelse(d3$Species==3, 5, 1)))
+
+plot(d3$dranges, d3$detections, col=d3$Species, pch=pch,
+     ylab="detections", xlab="diurnal range")
+
+dranges.seq <- seq(from=0, to=5, length.out=5)
+d.pred <- data.frame(
+  dranges=dranges.seq,
+  Species=1
+)
+
+lambda.pred.h <- m
+```
+
