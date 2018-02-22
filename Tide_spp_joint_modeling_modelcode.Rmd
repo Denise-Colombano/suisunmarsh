@@ -21,8 +21,7 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 ```
 
-
-# Reimport data - FINAL MODEL DATA SET
+# Model dataset tidied - Feb 2018
 ```{r, reimport}
 # reimport
 df <- read_csv("Data/Joint_spp/Ch2_modeling_dataset.csv") %>% 
@@ -30,10 +29,14 @@ df <- read_csv("Data/Joint_spp/Ch2_modeling_dataset.csv") %>%
 summary(df)
 
 df$datetime <- as_datetime(df$datetime, tz="America/Los_Angeles")
+df$asclimb <- as.factor(df$asclimb) # dummy variable
 
 # coerce index for species codes ST, SB, TP and sid
 df$Species <- coerce_index(df$Species)
 df$ID <- coerce_index(df$ID)
+
+check_index(df$Species)
+check_index(df$ID)
 ```
 
 ```{r, subset data for pilot models}
@@ -245,12 +248,12 @@ compare(mx,m0,m1, m2, m3, m4, m5, m6)
 
 ### m7 TOD, Month, Limb
 ```{r}
-d7 <- df[c("detections", "logdays", "ID", "Species", "sin_tod", "cos_tod", "sin_mnth", "cos_mnth", "minoff", "limb")]
+d7 <- df[c("detections", "logdays", "ID", "Species", "sin_tod", "cos_tod", "sin_mnth", "cos_mnth", "minoff", "asclimb")]
 m7prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
     logit(p) <- a0 + bm0*minoff,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bst*sin_tod + bct*cos_tod + bsm*sin_mnth + bcm*cos_mnth + bl*limb ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bst*sin_tod + bct*cos_tod + bsm*sin_mnth + bcm*cos_mnth + bl*asclimb ,
     c(a0, a, bst, bct, bsm, bcm, bl, bm0) ~ dnorm(0,1) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
@@ -267,12 +270,12 @@ pairs(m7)
 
 ### m8 Stage, Limb
 ```{r}
-d8 <- df[c("detections", "logdays", "ID", "Species", "stages", "minoff", "limb")]
+d8 <- df[c("detections", "logdays", "ID", "Species", "stages", "minoff", "asclimb")]
 m8prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
     logit(p) <- a0 + bm0*minoff ,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*limb ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*asclimb ,
     c(a0, a, bs, bl, bm0) ~ dnorm(0,1) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
@@ -291,12 +294,12 @@ compare(mx,m0,m1, m2, m3, m4, m5, m6, m7, m8)
 
 ### m9 Drange, Limb
 ```{r}
-d9 <- df[c("detections", "logdays", "ID", "Species", "dranges", "minoff", "limb")]
+d9 <- df[c("detections", "logdays", "ID", "Species", "dranges", "minoff", "asclimb")]
 m9prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
     logit(p) <- a0 + bm0*minoff ,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*limb ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*asclimb ,
     c(a0, a, bd, bl, bm0) ~ dnorm(0,1) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
@@ -315,12 +318,12 @@ compare(mx,m0,m1, m2, m3, m4, m5, m6, m7, m8, m9)
 
 ### m10 TOD, Stage, Limb
 ```{r}
-d10 <- df[c("detections", "logdays", "ID", "Species", "stages", "limb", "sin_tod", "cos_tod", "minoff")]
+d10 <- df[c("detections", "logdays", "ID", "Species", "stages", "asclimb", "sin_tod", "cos_tod", "minoff")]
 m10prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
     logit(p) <- a0 + bm0*minoff ,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*limb + bst*sin_tod + bct*cos_tod ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*asclimb + bst*sin_tod + bct*cos_tod ,
     c(a0, a, bs, bl, bst, bct, bm0) ~ dnorm(0,1) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
@@ -337,12 +340,12 @@ pairs(m10)
 
 ### m11 TOD, Drange, Limb
 ```{r}
-d11 <- df[c("detections", "logdays", "ID", "Species", "dranges", "limb", "sin_tod", "cos_tod", "minoff")]
+d11 <- df[c("detections", "logdays", "ID", "Species", "dranges", "asclimb", "sin_tod", "cos_tod", "minoff")]
 m11prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
     logit(p) <- a0 + bm0*minoff ,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*limb + bst*sin_tod + bct*cos_tod ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*asclimb + bst*sin_tod + bct*cos_tod ,
     c(a0, a, bd, bl, bst, bct, bm0) ~ dnorm(0,1) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
@@ -361,12 +364,12 @@ compare(m10,m11)
 
 ### m12 PAR, Stage, Limb
 ```{r}
-d12 <- df[c("detections", "logdays", "ID", "Species", "stages", "limb", "pars", "minoff")]
+d12 <- df[c("detections", "logdays", "ID", "Species", "stages", "asclimb", "pars", "minoff")]
 m12prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ),
     logit(p) <- a0 + bm0*minoff,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*limb + bp*pars,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bs*stages + bl*asclimb + bp*pars,
     c(a0, a, bs, bl, bp, bm0) ~ dnorm(0,10) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
@@ -383,12 +386,12 @@ pairs(m12)
 
 ### m13 PAR, Drange, Limb
 ```{r}
-d13 <- df[c("detections", "logdays", "ID", "Species", "dranges", "limb", "pars", "minoff")]
+d13 <- df[c("detections", "logdays", "ID", "Species", "dranges", "asclimb", "pars", "minoff")]
 m13prep <- map2stan(
   alist(
     detections ~ dzipois(p , lambda ) ,
     logit(p) <- a0 + bm0*minoff ,
-    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*limb + bp*pars ,
+    log(lambda) <- a + logdays + a_id[ID] + a_species[Species] + bd*dranges + bl*asclimb + bp*pars ,
     c(a0, a, bd, bl, bp, bm0) ~ dnorm(0,10) ,
     a_id[ID] ~ dnorm( 0 , sigma_id ) ,
     a_species[Species] ~ dnorm( 0 , sigma_species ) ,
