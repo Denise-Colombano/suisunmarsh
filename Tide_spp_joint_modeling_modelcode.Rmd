@@ -63,6 +63,21 @@ d_sub <- df %>%
 # 11 + TOD + dranges + limb
 # 12 + PAR + stages + limb
 # 13 + PAR + dranges + limb
+
+# Model terms
+## detections: fish observations (raw count)
+## TOD: Time of day (circular, fixed)
+## Month (circular, fixed)
+## PAR: Photosynthetically active radiation (standardized, fixed)
+## stages: Water depth (standardized, fixed)
+## dranges: Diurnal range in water depth (standardized, fixed)
+## Species: Striped bass (2); Splittail (3); Tule Perch (4); NA (1) (Index 1-4, random effect for partial pooling)
+## ID: PIT Tag Code for a tagged individual (Index 1-51, random effect)
+## minoff: Minutes during a 15-min interval that the system power turned off (zero-generating process)
+## logdays: Number of days a tagged individual was present in the system (offset)
+
+# Data set
+## 15-min monitoring data; contemporaneous fish, tide, and meteorological data
 ```
 
 ## Models
