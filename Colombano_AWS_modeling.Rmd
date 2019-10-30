@@ -56,7 +56,7 @@ domgl = dissolved oxygen
 temp = temperature
 ill = % disk illumination
 Twilight = Day vs. night vs. twilight categories
-inchannel = proportion of time in each day with in-channel flows (=there was water)
+inchannel = proportion of time in each day with in-channel flows (not dewatered, not overtopping banks)
 dewater = proportion of time in each day dewatered
 
 
