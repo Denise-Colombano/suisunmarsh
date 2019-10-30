@@ -1,0 +1,1053 @@
+---
+title: "Colombano AWS model checks"
+author: "Denise Colombano"
+date: "October 29, 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Load libraries
+```{r setup, include=FALSE}
+install.packages("devtools")
+devtools::install_github("thomasp85/patchwork")
+
+library(tidyverse)
+library(lubridate)
+library(patchwork)
+
+library(brms)
+library(broom)
+library(bayesplot)
+library(modelr)
+library(loo)
+
+library(rstan)
+library(StanHeaders)
+library(parallel)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores(), loo.cores = parallel::detectCores())
+getOption("mc.cores", "loo.cores")
+```
+
+
+# re-import data
+Import twilight, in-channel flows, and species-specific dataframes in the script, "Colombano AWS modeling". Splittail= dst, Striped bass= dsb, Tule perch= dtp.
+
+
+## Splittail
+```{r}
+model00st <- readRDS("Models/Splittail/brms_zip_00st_subset.rds")
+model0st <- readRDS("Models/Splittail/brms_zip_0st_subset.rds")
+model1st <- readRDS("Models/Splittail/brms_zip_1st_subset.rds")
+model2st <- readRDS("Models/Splittail/brms_zip_2st_subset.rds")
+model3st <- readRDS("Models/Splittail/brms_zip_3st_subset.rds")
+model4st <- readRDS("Models/Splittail/brms_zip_4st_subset.rds")
+model5st <- readRDS("Models/Splittail/brms_zip_5st_subset.rds")
+model6st <- readRDS("Models/Splittail/brms_zip_6st_subset.rds")
+model7st <- readRDS("Models/Splittail/brms_zip_7st_subset.rds")
+model8st <- readRDS("Models/Splittail/brms_zip_8st_subset.rds")
+model9st <- readRDS("Models/Splittail/brms_zip_9st_subset.rds")
+model10st <- readRDS("Models/Splittail/brms_zip_10st_subset.rds")
+model11st <- readRDS("Models/Splittail/brms_zip_11st_subset.rds")
+model12st <- readRDS("Models/Splittail/brms_zip_12st_subset.rds")
+model13st <- readRDS("Models/Splittail/brms_zip_13st_subset.rds")
+model14st <- readRDS("Models/Splittail/brms_zip_14st_subset.rds")
+model15st <- readRDS("Models/Splittail/brms_zip_15st_subset.rds")
+model16st <- readRDS("Models/Splittail/brms_zip_16st_subset.rds")
+model17st <- readRDS("Models/Splittail/brms_zip_17st_subset.rds")
+model18st <- readRDS("Models/Splittail/brms_zip_18st_subset.rds")
+```
+
+```{r}
+# check for problematic observations: pareto k estimates (k > 0.7)
+
+LOO(model00st) # OK
+LOO(model0st) # OK
+LOO(model1st) # OK
+LOO(model2st) # OK
+LOO(model3st) # OK
+LOO(model4st) # OK
+LOO(model5st) # OK
+LOO(model6st) # OK
+LOO(model7st) # OK
+LOO(model8st) # OK
+LOO(model9st) # OK
+LOO(model10st) # OK
+LOO(model11st) # OK
+LOO(model12st) # OK
+LOO(model13st) # OK
+LOO(model14st) # OK
+LOO(model15st) # OK
+LOO(model16st) # OK
+LOO(model17st) # OK
+LOO(model18st) # OK
+
+# no need to reloo splittail models
+```
+
+Add loo criterion
+```{r}
+model000st <- add_loo(model000st)
+model00st <- add_loo(model00st)
+model0st <- add_loo(model0st)
+model1st <- add_loo(model1st)
+model2st <- add_loo(model2st)
+model3st <- add_loo(model3st)
+model4st <- add_loo(model4st)
+model5st <- add_loo(model5st)
+model6st <- add_loo(model6st)
+model7st <- add_loo(model7st)
+model8st <- add_loo(model8st)
+model9st <- add_loo(model9st)
+model10st <- add_loo(model10st)
+model11st <- add_loo(model11st)
+model12st <- add_loo(model12st)
+model13st <- add_loo(model13st)
+model14st <- add_loo(model14st)
+model15st <- add_loo(model15st)
+model16st <- add_loo(model16st)
+model17st <- add_loo(model17st)
+model18st <- add_loo(model18st)
+model19st <- add_loo(model19st)
+```
+
+
+### model results
+https://bookdown.org/connect/#/apps/1850/access
+Solomon Kurz code: Rethinking 6.5.1 and 6.5.2
+```{r}
+# brms compare loo
+st_loo <- loo_compare(model00st, model0st, model1st, model2st, model3st, model4st, model5st, model6st, model7st, model8st, model9st, model10st, model11st, model12st, model13st, model14st, model15st, model16st, model17st, model18st, model19st, model20st, model21st)
+st_loo
+
+st_loo_df <- print(st_loo, simplify=F, digits=1)
+st_loo_df
+
+st_loo_df2 <- st_loo_df %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(model=rowname)
+View(st_loo_df2)
+
+st_loo2 <- cbind(loo_diff = st_loo[, 1] * -2,
+      se        = st_loo[, 2] * 2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(model=rowname)
+View(st_loo2)
+
+st_loo2 %>% write_csv("Data_output/SPT_looic.csv")
+
+# model weights
+# regular weights
+st_mw_loo <- model_weights(model00st, model0st, model1st, model2st, model3st, model4st, model5st, model6st, model7st, model8st, model9st, model10st, model11st, model12st, model13st, model14st, model15st, model16st, model17st, model18st, model19st, model20st, model21st, weights = "loo")
+View(st_mw_loo) 
+
+st_mw_loo <- data.frame(st_mw_loo) %>% rownames_to_column() %>% 
+  rename(model=rowname, model_weights=st_mw_loo) %>% 
+  mutate(model_weights=round(model_weights, digits=2)) %>% 
+  arrange(desc(model_weights))
+st_mw_loo
+View(st_mw_loo)
+
+st_mw_loo %>% write_csv("Data_output/SPT_Model_weights_loo.csv")
+
+# stacked weights
+st_mw_loo2 <- model_weights(model00st, model0st, model1st, model2st, model3st, model4st, model5st, model6st, model7st, model8st, model9st, model10st, model11st, model12st, model13st, model14st, model15st, model16st, model17st, model18st, model19st, model20st, model21st, weights = "loo2") # loo2 for Bayesian stacked weights
+View(st_mw_loo2) 
+
+st_mw_loo2 <- data.frame(st_mw_loo2) %>% rownames_to_column() %>% 
+  rename(model=rowname, stacked_weights=st_mw_loo2) %>% 
+  mutate(stacked_weights=round(stacked_weights, digits=2)) %>% 
+  arrange(desc(stacked_weights))
+st_mw_loo2
+View(st_mw_loo2)
+
+st_mw_loo2 %>% write_csv("Data_output/SPT_Stacked_weights_loo2.csv")
+
+# compare regular vs. stacked weights
+st_tbl_loo <- st_loo_df2 %>% #looic
+  left_join(st_mw_loo, by="model") %>% # regular model weights
+  left_join(st_mw_loo2, by="model") # stacked model weights
+View(st_tbl_loo)
+
+st_tbl_loo %>% write_csv("Data_output/SPT_Model_looic_compare_loo_vs_loo2.csv")
+```
+
+### effect plots
+```{r}
+library(brms)
+
+# marginal effects and splines plots
+# model 15
+mest15 <- marginal_effects(model15st, effects="ills", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(mest15)
+
+msst15 <- marginal_smooths(model15st, resolution=1000)
+msst15b <- marginal_smooths(model15st, resolution=1000, probs=c(0.1, 0.9))
+msst15c <- marginal_smooths(model15st, resolution=1000, probs=c(0.25, 0.75))
+
+disk_interval_st <- msst15b$"mu: s(ills,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+disk_interval_st2 <- msst15c$"mu: s(ills,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+st_plot15 <- plot(msst15)[[1]]+
+  geom_ribbon(data=disk_interval_st, fill="darkgray")+
+  geom_ribbon(data=disk_interval_st2, fill="gray50")+
+  theme_bw()+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="% Disk illumination", y="mu: s(illumination, k=5)", subtitle="Moon illumination model", tag="C")+
+  theme(text=element_text(family="Calibri", size=14))+
+  scale_x_continuous(breaks=c(-0.50, -0.25, 0, 0.25, 0.50), labels=c(0, 0.25, 0.50, 0.75, 1))+
+  annotate("text", x=0.2, y=-0.18, label="Wt=0.09", size=5)
+st_plot15
+
+st_plot15 <- plot(msst15)[[1]]+
+  geom_ribbon(data=disk_interval_st, fill="darkgray")+
+  geom_ribbon(data=disk_interval_st2, fill="gray50")+
+  theme_bw()+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="% Disk illumination", y="mu: s(illumination, k=5)", subtitle="Moon illumination model")+
+  theme(text=element_text(family="Calibri", size=14))+
+  scale_x_continuous(breaks=c(-0.50, -0.25, 0, 0.25, 0.50), labels=c(0, 0.25, 0.50, 0.75, 1))+
+  annotate("text", x=0.2, y=-0.18, label="Wt=0.09", size=5)
+st_plot15
+
+
+# model 18
+mest18 <- marginal_effects(model18st, effects="dewaters", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(mest18)
+
+msst18 <- marginal_smooths(model18st, resolution=1000)
+msst18b <- marginal_smooths(model18st, resolution=1000, probs=c(0.1, 0.9))
+msst18c <- marginal_smooths(model18st, resolution=1000, probs=c(0.25, 0.75))
+
+dewater_interval_st <- msst18b$"mu: s(dewaters,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+dewater_interval_st2 <- msst18c$"mu: s(dewaters,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+st_plot18 <- plot(msst18)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=dewater_interval_st, fill="darkgray")+
+  geom_ribbon(data=dewater_interval_st2, fill="gray50")+
+  geom_line(size=1, col="black")+
+    geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="% Day dewatered", y="mu: s(dewater, k=5)", subtitle="Dewatered channel model", tag="E")+
+  theme(text=element_text(family="Calibri", size=14))+
+  scale_x_continuous(breaks=c(-0.004632069, 0.01536793, 0.03536793, 0.05536793, 0.07536793), labels=c(0, 0.02, 0.04, 0.06, 0.08))+
+  annotate("text", x=0.055, y=-0.28, label="Wt=0.14", size=5)
+st_plot18
+
+
+# model 6
+mest6 <- marginal_effects(model6st, effects="dlows", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(mest6)
+
+msst6 <- marginal_smooths(model6st, resolution=1000)
+msst6b <- marginal_smooths(model6st, resolution=1000, probs=c(0.1, 0.9))
+msst6c <- marginal_smooths(model6st, resolution=1000, probs=c(0.25, 0.75))
+
+dlow_interval_st <- msst6b$"mu: s(dlows,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+dlow_interval_st2 <- msst6c$"mu: s(dlows,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+st_plot6 <- plot(msst6)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=dlow_interval_st, fill="darkgray")+
+  geom_ribbon(data=dlow_interval_st2, fill="gray50")+
+  geom_line(size=1, col="black")+
+    geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Tidal low", y="mu: s(dlow, k=5)",  subtitle="Tidal low model", tag="D")+
+  theme(text=element_text(family="Calibri", size=14))+
+  scale_x_continuous(breaks=c(-0.2, 0, 0.2, 0.4), labels=c(0.8, 1.0, 1.2, 1.4))+
+  annotate("text", x=0.2, y=-0.75, label="Wt=0.09", size=5)
+st_plot6
+
+st_plot6 <- plot(msst6)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=dlow_interval_st, fill="darkgray")+
+  geom_ribbon(data=dlow_interval_st2, fill="gray50")+
+  geom_line(size=1, col="black")+
+    geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Tidal low", y="mu: s(dlow, k=5)",  subtitle="Tidal low model")+
+  theme(text=element_text(family="Calibri", size=14))+
+  scale_x_continuous(breaks=c(-0.2, 0, 0.2, 0.4), labels=c(0.8, 1.0, 1.2, 1.4))+
+  annotate("text", x=0.2, y=-0.75, label="Wt=0.09", size=5)
+st_plot6
+
+
+# model 16
+mest16 <- marginal_effects(model16st, effects="Twilight", robust=FALSE, re_formula=NA, resolution=1000, method = "fitted", probs = c(0.25,0.75))
+
+st_plot16 <- plot(mest16)[[1]]+
+  theme_bw()+
+  labs(title="", subtitle="Day-night-twilight model", tag="B")+
+  theme(text=element_text(family="Calibri", size=14), axis.title=element_blank(), 
+        axis.text.x = element_text(angle=30, hjust=1, vjust=1))+
+  annotate("text", x="Dawn", y=0.55, label="Wt=0.16", size=5)+
+  ylim(0,0.6)
+st_plot16
+
+st_plot16 <- plot(mest16)[[1]]+
+  theme_bw()+
+  labs(title="", subtitle="Day-night-twilight model")+
+  theme(text=element_text(family="Calibri", size=14), axis.title=element_blank(), 
+        axis.text.x = element_text(angle=30, hjust=1, vjust=1))+
+  annotate("text", x="Dawn", y=0.55, label="Wt=0.16", size=5)+
+  ylim(0,0.6)
+st_plot16
+
+
+# model 21
+mest21 <- marginal_effects(model21st, effects="phase8", robust=FALSE, re_formula=NA, resolution=1000, method = "fitted", probs = c(0.25,0.75))
+
+st_plot21 <- plot(mest21)[[1]]+
+  theme_bw()+
+  labs(y="Detections", title="Splittail", subtitle="Lunar phase 8 model", tag="A")+
+  theme(text=element_text(family="Calibri", size=14), axis.title.x=element_blank(), 
+        axis.text.x = element_text(angle=30, hjust=1, vjust=1))+
+  annotate("text", x="New", y=0.55, label="Wt=0.26", size=5)+
+  ylim(0,0.6) #  
+st_plot21
+
+
+st_plot21 <- plot(mest21)[[1]]+
+  theme_bw()+
+  labs(y="Detections", title="Splittail", subtitle="Lunar phase 8 model")+
+  theme(text=element_text(family="Calibri", size=14), axis.title.x=element_blank(), 
+        axis.text.x = element_text(angle=90, hjust=1, vjust=1))+
+  annotate("text", x="Waxing crescent", y=0.55, label="Wt=0.26", size=5)+
+  ylim(0,0.6) #  
+st_plot21
+
+library(cowplot)
+plot_grid(st_plot21, st_plot16, nrow=1, ncol=2, rel_widths = c(1,0.5))
+plot_grid(st_plot15, st_plot6, st_plot18, nrow=1, ncol=3)
+
+
+library(patchwork)
+st_plot21 + st_plot16 + plot_layout(ncol=2, widths = c(1,0.65)) - {
+  st_plot15 + st_plot6 + st_plot18 + plot_layout(ncol=3)
+  } + 
+  plot_layout(ncol=1)
+
+# plot for manuscript
+st_plot21 - {
+  st_plot16 + st_plot15  + plot_layout(ncol=2)
+} +
+  plot_layout(ncol=1)
+```
+
+### ppc and coef tab
+```{r}
+model21st <- readRDS("Models/Splittail/brms_zip_21st_subset.rds")
+summary(model21st)
+
+ppst <- pp_check(model21st, type = "bars") +
+  theme_bw()+
+  labs(title="Splittail", subtitle="Phase8 model posterior check")+
+  theme(text=element_text(size=16, family="Calibri"))
+ppst
+
+stanst <- stanplot(model21st)+
+  theme_bw()+
+  labs(title="Splittail", subtitle="Phase8 model coefficients")+
+  theme(text=element_text(size=16, family="Calibri"))
+stanst
+```
+
+
+## Striped bass
+
+```{r}
+model00sb <- readRDS("Models/Striper/brms_zip_00sb_subset.rds")
+model0sb <- readRDS("Models/Striper/brms_zip_0sb_subset.rds")
+model1sb <- readRDS("Models/Striper/brms_zip_1sb_subset.rds")
+model2sb <- readRDS("Models/Striper/brms_zip_2sb_subset.rds")
+model3sb <- readRDS("Models/Striper/brms_zip_3sb_subset.rds")
+model4sb <- readRDS("Models/Striper/brms_zip_4sb_subset.rds")
+model5sb <- readRDS("Models/Striper/brms_zip_5sb_subset.rds")
+model6sb <- readRDS("Models/Striper/brms_zip_6sb_subset.rds")
+model7sb <- readRDS("Models/Striper/brms_zip_7sb_subset.rds")
+model8sb <- readRDS("Models/Striper/brms_zip_8sb_subset.rds")
+model9sb <- readRDS("Models/Striper/brms_zip_9sb_subset.rds")
+model10sb <- readRDS("Models/Striper/brms_zip_10sb_subset.rds")
+model11sb <- readRDS("Models/Striper/brms_zip_11sb_subset.rds")
+model12sb <- readRDS("Models/Striper/brms_zip_12sb_subset.rds")
+model13sb <- readRDS("Models/Striper/brms_zip_13sb_subset.rds")
+model14sb <- readRDS("Models/Striper/brms_zip_14sb_subset.rds")
+model15sb <- readRDS("Models/Striper/brms_zip_15sb_subset.rds")
+model16sb <- readRDS("Models/Striper/brms_zip_16sb_subset.rds")
+model17sb <- readRDS("Models/Striper/brms_zip_17sb_subset.rds")
+model18sb <- readRDS("Models/Striper/brms_zip_18sb_subset.rds")
+```
+
+```{r}
+# check for problematic observations: pareto k estimates (k > 0.7)
+
+LOO(model00sb) # OK
+LOO(model0sb) # OK
+LOO(model1sb) # OK
+LOO(model2sb) # OK
+LOO(model3sb) # OK
+LOO(model4sb) # 1 bad
+LOO(model5sb) # OK
+LOO(model6sb) # OK
+LOO(model7sb) # OK
+LOO(model8sb) # OK
+LOO(model9sb) # OK
+LOO(model10sb) # OK
+LOO(model11sb) # OK
+LOO(model12sb) # OK
+LOO(model13sb) # OK
+LOO(model14sb) # OK
+LOO(model15sb) # OK
+LOO(model16sb) # OK
+LOO(model17sb) # OK
+LOO(model18sb) # OK
+LOO(model19sb) # OK
+LOO(model20sb) # OK
+LOO(model21sb) # OK
+
+# striped bass reloo models if needed:
+
+# conduct a reloo analysis and store as loo in the model object
+# code updated with feedback from paul buerkner (brms author)
+# https://discourse.mc-stan.org/t/model-weights-function-with-reloo/8643
+
+# model 4
+# add loo to model
+model4sb$loo <- LOO(model4sb, reloo = TRUE, pointwise = TRUE, k_threshold=0.7)
+
+# save as reloo model name
+model4sb %>% saveRDS("Models/Striper/brms_zip_model4sb_reloo.rds")
+
+model4sb_reloo <- readRDS("Models/Striper/brms_zip_model4sb_reloo.rds")
+```
+
+Add loo criterion
+```{r}
+model00sb <- add_loo(model00sb)
+model0sb <- add_loo(model0sb)
+model1sb <- add_loo(model1sb)
+model2sb <- add_loo(model2sb)
+model3sb <- add_loo(model3sb)
+model4sb <- add_loo(model4sb)
+model5sb <- add_loo(model5sb)
+model6sb <- add_loo(model6sb)
+model7sb <- add_loo(model7sb)
+model8sb <- add_loo(model8sb)
+model9sb <- add_loo(model9sb)
+model10sb <- add_loo(model10sb)
+model11sb <- add_loo(model11sb)
+model12sb <- add_loo(model12sb)
+model13sb <- add_loo(model13sb)
+model14sb <- add_loo(model14sb)
+model15sb <- add_loo(model15sb)
+model16sb <- add_loo(model16sb)
+```
+
+```{r}
+loo(model00sb)
+loo(model0sb)
+loo(model1sb)
+loo(model2sb)
+loo(model3sb)
+loo(model4sb_reloo)
+loo(model5sb)
+loo(model6sb)
+loo(model7sb)
+loo(model8sb)
+loo(model9sb)
+loo(model10sb)
+loo(model11sb)
+loo(model12sb)
+loo(model13sb)
+loo(model14sb)
+loo(model15sb)
+loo(model16sb)
+loo(model17sb)
+loo(model18sb)
+loo(model19sb)
+```
+
+### model results
+```{r}
+# brms compare loo
+sb_loo <- loo_compare(model00sb, model0sb, model1sb, model2sb, model3sb, model4sb_reloo, model5sb, model6sb, model7sb, model8sb, model9sb, model10sb, model11sb, model12sb, model13sb, model14sb, model15sb, model16sb, model17sb, model18sb, model19sb, model20sb, model21sb)
+
+sb_loo_df <- print(sb_loo, simplify=F, digits=1)
+sb_loo_df
+
+sb_loo_df2 <- sb_loo_df %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(model=rowname)
+View(sb_loo_df2)
+
+sb_loo2 <- cbind(loo_diff = sb_loo[, 1] * -2,
+      se        = sb_loo[, 2] * 2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(model=rowname)
+View(sb_loo2)
+
+sb_loo2 %>% write_csv("Data_output/STB_looic.csv")
+
+# model weights
+# regular weights
+sb_mw_loo <- model_weights(model00sb, model0sb, model1sb, model2sb, model3sb, model4sb_reloo, model5sb, model6sb, model7sb, model8sb, model9sb, model10sb, model11sb, model12sb, model13sb, model14sb, model15sb, model16sb, model17sb, model18sb, model19sb, model20sb, model21sb, weights = "loo")
+View(sb_mw_loo) 
+
+sb_mw_loo <- data.frame(sb_mw_loo) %>% rownames_to_column() %>% 
+  rename(model=rowname, model_weights=sb_mw_loo) %>% 
+  mutate(model_weights=round(model_weights, digits=2)) %>% 
+  arrange(desc(model_weights))
+sb_mw_loo
+View(sb_mw_loo)
+
+sb_mw_loo %>% write_csv("Data_output/STB_Model_weights_loo.csv")
+
+# stacked weights
+sb_mw_loo2 <- model_weights(model00sb, model0sb, model1sb, model2sb, model3sb, model4sb_reloo, model5sb, model6sb, model7sb, model8sb, model9sb, model10sb, model11sb, model12sb, model13sb, model14sb, model15sb, model16sb, model17sb, model18sb, model19sb, model20sb, model21sb, weights = "loo2") # loo2 for Bayesian stacked weights
+View(sb_mw_loo2) 
+
+sb_mw_loo2 <- data.frame(sb_mw_loo2) %>% rownames_to_column() %>% 
+  rename(model=rowname, stacked_weights=sb_mw_loo2) %>% 
+  mutate(stacked_weights=round(stacked_weights, digits=2)) %>% 
+  arrange(desc(stacked_weights))
+sb_mw_loo2
+View(sb_mw_loo2)
+
+sb_mw_loo2 %>% write_csv("Data_output/STB_Stacked_weights_loo2.csv")
+
+# create a table for manuscript
+sb_tbl_loo <- sb_loo_df2 %>% #looic
+  left_join(sb_loo2, by="model") %>% 
+  left_join(sb_mw_loo, by="model") %>% # regular model weights
+  left_join(sb_mw_loo2, by="model") # stacked model weights
+View(sb_tbl_loo)
+
+sb_tbl_loo %>% write_csv("Data_output/STB_Model_looic_compare_loo_vs_loo2.csv")
+```
+
+### effect plots
+```{r}
+# marginal effects and splines plots
+# model 1
+mesb1 <- marginal_effects(model1sb, effects="stage_z", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(mesb1)
+
+mssb1 <- marginal_smooths(model1sb, resolution=1000, probs=c(0.025, 0.975))
+mssb1b <- marginal_smooths(model1sb, resolution=1000, probs=c(0.1, 0.9))
+mssb1c <- marginal_smooths(model1sb, resolution=1000, probs=c(0.25, 0.75))
+
+depth_interval_sb <- mssb1b$"mu: s(stage_z,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+depth_interval_sb2 <- mssb1c$"mu: s(stage_z,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+sb_plot1 <- plot(mssb1)[[1]]+
+  geom_ribbon(data=depth_interval_sb, fill="darkgray")+
+  geom_ribbon(data=depth_interval_sb2, fill="gray50")+
+  theme_bw()+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Tide height (z-score transformed)", y="mu: s(theight, k=5)", title="Striped Bass", subtitle="Tide height model", tag="A")+
+  theme(text=element_text(family="Calibri", size=14))+
+  annotate("text", x=1.2, y=-0.27, label="Wt=0.26", size=5)
+sb_plot1
+
+
+sb_plot1 <- plot(mssb1)[[1]]+
+  geom_ribbon(data=depth_interval_sb, fill="darkgray")+
+  geom_ribbon(data=depth_interval_sb2, fill="gray50")+
+  theme_bw()+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Water depth (z-score transformed)", y="mu: s(depth, k=5)", title="Striped Bass", subtitle="Water depth model")+
+  theme(text=element_text(family="Calibri", size=14))+
+  annotate("text", x=1.2, y=-0.27, label="Wt=0.26", size=5)
+sb_plot1
+
+
+# model 6
+mesb6 <- marginal_effects(model6sb, effects="dlows", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(mesb6)
+
+mssb6 <- marginal_smooths(model6sb, resolution=1000)
+mssb6b <- marginal_smooths(model6sb, resolution=1000, probs=c(0.1, 0.9))
+mssb6c <- marginal_smooths(model6sb, resolution=1000, probs=c(0.25, 0.75))
+
+dlow_interval_sb <- mssb6b$"mu: s(dlows,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+dlow_interval_sb2 <- mssb6c$"mu: s(dlows,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+sb_plot6 <- plot(mssb6)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=dlow_interval_sb, fill="darkgray")+
+  geom_ribbon(data=dlow_interval_sb2, fill="gray50")+
+  geom_line(size=1, col="black")+
+    geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Tidal low", y="mu: s(tlow, k=5)", subtitle="Tidal low model", tag="C")+
+  theme(text=element_text(family="Calibri", size=14))+
+  scale_x_continuous(breaks=c(-0.2, 0, 0.2, 0.4), labels=c(0.8, 1.0, 1.2, 1.4))+
+  annotate("text", x=0.35, y=-1.1, label="Wt=0.18", size=5)
+sb_plot6
+
+
+sb_plot6 <- plot(mssb6)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=dlow_interval_sb, fill="darkgray")+
+  geom_ribbon(data=dlow_interval_sb2, fill="gray50")+
+  geom_line(size=1, col="black")+
+    geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Tidal low", y="mu: s(dlow, k=5)", subtitle="Tidal low model")+
+  theme(text=element_text(family="Calibri", size=14))+
+  scale_x_continuous(breaks=c(-0.2, 0, 0.2, 0.4), labels=c(0.8, 1.0, 1.2, 1.4))+
+  annotate("text", x=0.35, y=-1.1, label="Wt=0.18", size=5)
+sb_plot6
+
+
+# model 8
+mesb8 <- marginal_effects(model8sb, effects="dinequalitys", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(mesb8)
+
+mssb8 <- marginal_smooths(model8sb, resolution=1000)
+mssb8b <- marginal_smooths(model8sb, resolution=1000, probs=c(0.1, 0.9))
+mssb8c <- marginal_smooths(model8sb, resolution=1000, probs=c(0.25, 0.75))
+
+din_interval_sb <- mssb8b$"mu: s(dinequalitys,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+din_interval_sb2 <- mssb8c$"mu: s(dinequalitys,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+sb_plot8 <- plot(mssb8)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=din_interval_sb, fill="darkgray")+
+  geom_ribbon(data=din_interval_sb2, fill="gray50")+
+  geom_line(size=1, col="black")+
+    geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Tidal inequality", y="mu: s(tinequality, k=5)", subtitle="Tidal inequality model", tag="D")+
+  theme(text=element_text(family="Calibri", size=14))+
+  scale_x_continuous(breaks=c(-0.6, -0.4, -0.2, 0, 0.2, 0.4), labels=c(-0.25, 0, 0.25, 0.50, 0.75, 1))+
+  annotate("text", x=0.2, y=-0.45, label="Wt=0.13", size=5)
+sb_plot8
+
+sb_plot8 <- plot(mssb8)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=din_interval_sb, fill="darkgray")+
+  geom_ribbon(data=din_interval_sb2, fill="gray50")+
+  geom_line(size=1, col="black")+
+    geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Tidal inequality", y="mu: s(dinequality, k=5)", subtitle="Tidal inequality model")+
+  theme(text=element_text(family="Calibri", size=14))+
+  scale_x_continuous(breaks=c(-0.6, -0.4, -0.2, 0, 0.2, 0.4), labels=c(-0.25, 0, 0.25, 0.50, 0.75, 1))+
+  annotate("text", x=0.2, y=-0.45, label="Wt=0.13", size=5)
+sb_plot8
+
+
+# model 14
+mesb14 <- marginal_effects(model14sb, effects="temp_z", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(mesb14)
+
+mssb14 <- marginal_smooths(model14sb, resolution=1000)
+mssb14b <- marginal_smooths(model14sb, resolution=1000, probs=c(0.1, 0.9))
+mssb14c <- marginal_smooths(model14sb, resolution=1000, probs=c(0.25, 0.75))
+
+temp_interval_sb <- mssb14b$"mu: s(temp_z,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+temp_interval_sb2 <- mssb14c$"mu: s(temp_z,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+xlab <- "Temperature (z-score transformed)"
+
+sb_plot14 <- plot(mssb14)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=temp_interval_sb, fill="darkgray")+
+  geom_ribbon(data=temp_interval_sb2, fill="gray50")+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x=xlab, y="mu: s(temp, k=5)", subtitle="Temperature model", tag="B")+
+  theme(text=element_text(family="Calibri", size=14))+
+  annotate("text", x=2.5, y=-0.45, label="Wt=0.09", size=5)
+sb_plot14
+
+
+
+# model 16
+mesb16 <- marginal_effects(model16sb, effects="Twilight", robust=FALSE, re_formula=NA, resolution=1000, method = "fitted", probs=c(0.25,0.75))
+
+sb_plot16 <- plot(mesb16)[[1]]+
+  theme_bw()+
+  labs(y="Detections", subtitle="Day-night-twilight model", tag="E")+
+  theme(text=element_text(family="Calibri", size=14), axis.title.x = element_blank(), 
+        axis.text.x = element_text(angle=30, hjust=1, vjust=1))+
+  annotate("text", x="Dawn", y=0.28, label="Wt=0.10", size=5)+
+  ylim(0,0.3)
+sb_plot16
+
+library(patchwork)
+sb_plot1 + sb_plot14 + plot_layout(ncol=2) -  {
+  sb_plot6 + sb_plot8 + plot_layout(ncol=2)
+} + 
+  plot_layout(nrow=2) - {
+    sb_plot16
+  } + 
+  plot_layout(nrow=2, heights=c(1,0.4))
+```
+
+### ppc and coef tab
+```{r}
+model1sb <- readRDS("Models/Striper/brms_zip_1sb_subset.rds")
+summary(model1sb)
+
+ppsb <- pp_check(model1sb, type = "bars") +
+  theme_bw()+
+  labs(title="Striped Bass", subtitle="Tide height model posterior check")+
+  theme(text=element_text(size=16, family="Calibri"))
+ppsb
+
+stansb <- stanplot(model1sb)+
+  theme_bw()+
+  labs(title="Striped Bass", subtitle="Tide height model coefficients")+
+  theme(text=element_text(size=16, family="Calibri"))
+stansb
+```
+
+
+## Tule perch
+```{r}
+# tule perch
+model00tp <- readRDS("Models/Tuleperch/brms_zip_00tp_subset.rds")
+model0tp <- readRDS("Models/Tuleperch/brms_zip_0tp_subset.rds")
+model1tp <- readRDS("Models/Tuleperch/brms_zip_1tp_subset.rds")
+model2tp <- readRDS("Models/Tuleperch/brms_zip_2tp_subset.rds")
+model3tp <- readRDS("Models/Tuleperch/brms_zip_3tp_subset.rds")
+model4tp <- readRDS("Models/Tuleperch/brms_zip_4tp_subset.rds")
+model5tp <- readRDS("Models/Tuleperch/brms_zip_5tp_subset.rds")
+model6tp <- readRDS("Models/Tuleperch/brms_zip_6tp_subset.rds")
+model7tp <- readRDS("Models/Tuleperch/brms_zip_7tp_subset.rds")
+model8tp <- readRDS("Models/Tuleperch/brms_zip_8tp_subset.rds")
+model9tp <- readRDS("Models/Tuleperch/brms_zip_9tp_subset.rds")
+model10tp <- readRDS("Models/Tuleperch/brms_zip_10tp_subset.rds")
+model11tp <- readRDS("Models/Tuleperch/brms_zip_11tp_subset.rds")
+model12tp <- readRDS("Models/Tuleperch/brms_zip_12tp_subset.rds")
+model13tp <- readRDS("Models/Tuleperch/brms_zip_13tp_subset.rds")
+model14tp <- readRDS("Models/Tuleperch/brms_zip_14tp_subset.rds")
+model15tp <- readRDS("Models/Tuleperch/brms_zip_15tp_subset.rds")
+model16tp <- readRDS("Models/Tuleperch/brms_zip_16tp_subset.rds")
+model17tp <- readRDS("Models/Tuleperch/brms_zip_17tp_subset.rds")
+model18tp <- readRDS("Models/Tuleperch/brms_zip_18tp_subset.rds")
+```
+
+```{r}
+# check for problematic observations: pareto k estimates (k > 0.7)
+
+LOO(model00tp) # OK
+LOO(model0tp) # OK
+LOO(model1tp) # OK
+LOO(model2tp) # OK
+LOO(model3tp) # OK
+LOO(model4tp) # OK
+LOO(model5tp) # OK
+LOO(model6tp) # OK
+LOO(model7tp) # OK
+LOO(model8tp) # OK
+LOO(model9tp) # OK
+LOO(model10tp) # OK
+LOO(model11tp) # OK
+LOO(model12tp) # OK
+LOO(model13tp) # OK
+LOO(model14tp) # OK
+LOO(model15tp) # OK
+LOO(model16tp) # OK
+LOO(model17tp) # OK
+LOO(model18tp) # OK
+LOO(model19tp) # OK
+LOO(model20tp) # OK
+LOO(model21tp) # OK
+```
+
+Add loo criterion
+```{r}
+model0000tp <- add_loo(model0000tp)
+model000tp <- add_loo(model000tp)
+model00tp <- add_loo(model00tp)
+model0tp <- add_loo(model0tp)
+model1tp <- add_loo(model1tp)
+model2tp <- add_loo(model2tp)
+model3tp <- add_loo(model3tp)
+model4tp <- add_loo(model4tp)
+model5tp <- add_loo(model5tp)
+model6tp <- add_loo(model6tp)
+model7tp <- add_loo(model7tp)
+model8tp <- add_loo(model8tp)
+model9tp <- add_loo(model9tp)
+model10tp <- add_loo(model10tp)
+model11tp <- add_loo(model11tp)
+model12tp <- add_loo(model12tp)
+model13tp <- add_loo(model13tp)
+model14tp <- add_loo(model14tp)
+model15tp <- add_loo(model15tp)
+model16tp <- add_loo(model16tp)
+model17tp <- add_loo(model17tp)
+model18tp <- add_loo(model18tp)
+model19tp <- add_loo(model19tp)
+model20tp <- add_loo(model20tp)
+
+summary(model000tp)
+```
+
+### model results
+```{r}
+# brms compare loo
+tp_loo <- loo_compare(model00tp, model0tp, model1tp, model2tp, model3tp, model4tp, model5tp, model6tp, model7tp, model8tp, model9tp, model10tp, model11tp, model12tp, model13tp, model14tp, model15tp, model16tp, model17tp, model18tp, model19tp, model20tp, model21tp)
+
+tp_loo_df <- print(tp_loo, simplify=F, digits=1)
+tp_loo_df
+
+tp_loo_df2 <- tp_loo_df %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(model=rowname)
+View(tp_loo_df2)
+
+tp_loo2 <- cbind(loo_diff = tp_loo[, 1] * -2,
+      se        = tp_loo[, 2] * 2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(model=rowname)
+View(tp_loo2)
+
+# fix this file path - sub redo v10
+tp_loo2 %>% write_csv("Data_output/TUP_looic.csv")
+
+# model weights
+# regular weights
+tp_mw_loo <- model_weights(model00tp, model0tp, model1tp, model2tp, model3tp, model4tp, model5tp, model6tp, model7tp, model8tp, model9tp, model10tp, model11tp, model12tp, model13tp, model14tp, model15tp, model16tp, model17tp, model18tp, model19tp, model20tp, model21tp, weights = "loo") 
+View(tp_mw_loo) 
+
+tp_mw_loo <- data.frame(tp_mw_loo) %>% rownames_to_column() %>% 
+  rename(model=rowname, model_weights=tp_mw_loo) %>% 
+  mutate(model_weights=round(model_weights, digits=2)) %>% 
+  arrange(desc(model_weights))
+tp_mw_loo
+View(tp_mw_loo)
+
+tp_mw_loo %>% write_csv("Data_output/TUP_Model_weights_loo.csv")
+
+# stacked weights
+tp_mw_loo2 <- model_weights(model00tp, model0tp, model1tp, model2tp, model3tp, model4tp, model5tp, model6tp, model7tp, model8tp, model9tp, model10tp, model11tp, model12tp, model13tp, model14tp, model15tp, model16tp, model17tp, model18tp, model19tp, model20tp, model21tp, weights = "loo2") # loo2 for stacked weights
+View(tp_mw_loo2) 
+
+tp_mw_loo2 <- data.frame(tp_mw_loo2) %>% rownames_to_column() %>% 
+  rename(model=rowname, stacked_weights=tp_mw_loo2) %>% 
+  mutate(stacked_weights=round(stacked_weights, digits=2)) %>% 
+  arrange(desc(stacked_weights))
+tp_mw_loo2
+View(tp_mw_loo2)
+
+tp_mw_loo2 %>% write_csv("Data_output/TUP_Stacked_weights_loo2.csv")
+
+# create a table for manuscript
+tp_tbl_loo <- tp_loo_df2 %>% #looic
+  left_join(tp_mw_loo, by="model") %>% # regular model weights
+  left_join(tp_mw_loo2, by="model") # stacked model weights
+View(tp_tbl_loo)
+
+tp_tbl_loo %>% write_csv("Data_output/TUP_Model_looic_compare_loo_vs_loo2.csv")
+```
+
+### effect plots
+```{r}
+
+# marginal effects and splines plots
+# model 9
+metp9 <- marginal_effects(model9tp, effects="slopes", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(metp9)
+
+mstp9 <- marginal_smooths(model9tp, resolution=1000)
+mstp9b <- marginal_smooths(model9tp, resolution=1000, probs=c(0.1,0.9))
+mstp9c <- marginal_smooths(model9tp, resolution=1000, probs=c(0.25,0.75))
+
+slope_interval_tp <- mstp9b$"mu: s(slopes,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+slope_interval_tp2 <- mstp9c$"mu: s(slopes,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+tp_plot9 <- plot(mstp9)[[1]]+
+  geom_ribbon(data=slope_interval_tp, fill="darkgray")+
+  geom_ribbon(data=slope_interval_tp2, fill="gray50")+
+  theme_bw()+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Rate of change in tide height", y="mu: s(trate, k=5)", title="Tule Perch", subtitle="Rate of change in tide height model", tag="A")+
+  theme(text=element_text(family="Calibri", size=14))+
+  annotate("text", x=9, y=-0.1, label="Wt=0.26", size=5)
+tp_plot9
+
+
+tp_plot9 <- plot(mstp9)[[1]]+
+  geom_ribbon(data=slope_interval_tp, fill="darkgray")+
+  geom_ribbon(data=slope_interval_tp2, fill="gray50")+
+  theme_bw()+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Rate of change in water depth", y="mu: s(rate, k=5)", title="Tule Perch", subtitle="Rate of change in water depth model")+
+  theme(text=element_text(family="Calibri", size=14))+
+  annotate("text", x=9, y=-0.1, label="Wt=0.26", size=5)
+tp_plot9
+
+
+# model 1
+metp1 <- marginal_effects(model1tp, effects="stage_z", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(metp1)
+
+mstp1 <- marginal_smooths(model1tp, resolution=1000, probs=c(0.025, 0.975))
+mstp1b <- marginal_smooths(model1tp, resolution=1000, probs=c(0.1, 0.9))
+mstp1c <- marginal_smooths(model1tp, resolution=1000, probs=c(0.25, 0.75))
+
+depth_interval_tp <- mstp1b$"mu: s(stage_z,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+depth_interval_tp2 <- mstp1c$"mu: s(stage_z,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+tp_plot1 <- plot(mstp1)[[1]]+
+  geom_ribbon(data=depth_interval_tp, fill="darkgray")+
+  geom_ribbon(data=depth_interval_tp2, fill="gray50")+
+  theme_bw()+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Tide height (z-score transformed)", y="mu: s(theight, k=5)", subtitle="Tide height model", tag="B")+
+  theme(text=element_text(family="Calibri", size=14))+
+  annotate("text", x=1.2, y=-0.7, label="Wt=0.22", size=5)
+tp_plot1
+
+
+tp_plot1 <- plot(mstp1)[[1]]+
+  geom_ribbon(data=depth_interval_tp, fill="darkgray")+
+  geom_ribbon(data=depth_interval_tp2, fill="gray50")+
+  theme_bw()+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x="Water depth (z-score transformed)", y="mu: s(depth, k=5)", subtitle="Water depth model")+
+  theme(text=element_text(family="Calibri", size=14))+
+  annotate("text", x=1.2, y=-0.7, label="Wt=0.22", size=5)
+tp_plot1
+
+
+# model 14
+metp14 <- marginal_effects(model14tp, effects="temp_z", robust=TRUE, re_formula=NULL, resolution=1000, method = "fitted")
+plot(metp14)
+
+mstp14 <- marginal_smooths(model14tp, resolution=1000)
+mstp14b <- marginal_smooths(model14tp, resolution=1000, probs=c(0.1, 0.9))
+mstp14c <- marginal_smooths(model14tp, resolution=1000, probs=c(0.25, 0.75))
+
+temp_interval_tp <- mstp14b$"mu: s(temp_z,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+temp_interval_tp2 <- mstp14c$"mu: s(temp_z,k=5)" %>% 
+  select(`lower__`, `upper__`, `effect1__`, `estimate__`)
+
+xlab <- "Temperature (z-score transformed)"
+
+tp_plot14 <- plot(mstp14)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=temp_interval_tp, fill="darkgray")+
+  geom_ribbon(data=temp_interval_tp2, fill="gray50")+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x=xlab, y="mu: s(temp, k=5)", subtitle="Temperature model", tag="C")+
+  theme(text=element_text(family="Calibri", size=14))+
+  annotate("text", x=2.5, y=-0.6, label="Wt=0.16", size=5)
+tp_plot14
+
+
+tp_plot14 <- plot(mstp14)[[1]]+
+  theme_bw()+
+  geom_ribbon(data=temp_interval_tp, fill="darkgray")+
+  geom_ribbon(data=temp_interval_tp2, fill="gray50")+
+  geom_line(size=1, col="black")+
+  geom_hline(yintercept = 0, lty=2, col="red")+
+  labs(x=xlab, y="mu: s(temp, k=5)", subtitle="Temperature model")+
+  theme(text=element_text(family="Calibri", size=14))+
+  annotate("text", x=2.5, y=-0.6, label="Wt=0.16", size=5)
+tp_plot14
+
+tp_plot9 + tp_plot1 + tp_plot14 + plot_layout(nrow=1, ncol=3)
+```
+
+
+### ppc and coef tab
+```{r}
+model0tp <- readRDS("Models/Tuleperch/brms_zip_0tp_subset.rds")
+summary(model0tp)
+
+# model 0
+pptp <- pp_check(model0tp, type = "bars") +
+  theme_bw()+
+  labs(title="Tule Perch", subtitle="Month model posterior check")+
+  theme(text=element_text(size=16, family="Calibri"))
+pptp
+
+stantp <- stanplot(model0tp)+
+  theme_bw()+
+  labs(title="Tule Perch", subtitle="Month model coefficients")+
+  theme(text=element_text(size=16, family="Calibri"))
+stantp
+```
+
+# model checking all spp
+
+## ppc and stan plots
+```{r}
+library(patchwork)
+ppsb + ppst + pptp + plot_layout(nrow=3, ncol=1)
+
+stansb + stanst + stantp + plot_layout(nrow=3, ncol=1)
+```
+
+
+
+Extra stuff I tried for model averaging but didn't end up using.
+```{r}
+(tp_nd <- unique(dtp[, c("PIT", "logdays", "logdet", "logmin", "mnth", "PIT", "stage_z", "tide", "slopes", "temp_z")]))
+
+# compute model-averaged predicted values
+tp_pp_avg <- pp_average(model0tp, model1tp, model4tp, model9tp, model14tp, weights = "loo2", method = "predict", summary = TRUE, 
+  probs = c(0.025, 0.975), newdata = tp_nd)
+View(tp_pp_avg)
+
+# compute model-averaged fitted values
+tp_pp_avg_fit <- pp_average(model0tp, model1tp, model4tp, model9tp, model14tp, weights = "loo2", method = "fitted", summary = TRUE, 
+  probs = c(0.025, 0.975), newdata = tp_nd)
+View(tp_pp_avg_fit)
+
+tp_fit <- as_tibble(tp_pp_avg_fit)
+tp_predict <- as_tibble(tp_pp_avg)
+
+ggplot(tp_predict, aes(Estimate))+
+  geom_density(fill="darkblue", alpha=0.5)+
+  geom_density(data=tp_fit, aes(Estimate), fill="lightblue", alpha=0.7)+
+  labs(title= "Tule Perch", subtitle="Model-averaged posterior predictive distribution")+
+  xlim(0,8)
+```

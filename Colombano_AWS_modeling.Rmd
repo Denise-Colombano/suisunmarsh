@@ -1,0 +1,1950 @@
+---
+title: "Colombano AWS modeling"
+author: "Denise Colombano"
+date: "October 29, 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+(1) Amazon AWS directions
+
+This script is intended as a "Run" --> "Run All" in Amazon AWS using the 
+RStudio AMI by Louis Aslett http://www.louisaslett.com/RStudio_AMI/ . 
+Directions: Create a spot instance using a memory optimized instance such as
+"r3.8xlarge" with 32 cores. Log in using the instance URL, "rstudio" as login and 
+instance ID as password. Run the script, load the R package and create a new
+password, and then **clear the console** for security reasons.
+
+Bring in the "Data" folder with data frames. Create a "Models" folder with three subfolders (one for each species). Create a "Data_output" folder.
+
+Files in "Data" folder:
+- Twilight
+- Inchannel
+- Splittail
+- Striped bass
+- Tule perch
+
+(2) What's in this script
+
+Use this script to run a suite of hierarchical non-linear models for all three species (ST, SB, TP) based on single main effects (in addition to zero-inflating terms, random effects, etc). For example:
+
+(A) detections ~ s(dranges, bs="tp")
+(B) detections ~ s(tide, bs="tp")
+(C) detections ~ s(drangecat, bs="tp")
+(D) detections ~ s(hr, bs="cc", k=12)
+
+Once these models are saved, examine the results using summary(), marginal_effects()
+and marginal_smooths().
+
+
+Model terms are defined as follows:
+
+stage = "Tide height"
+drange = "Tidal range"
+drangecat = "Tidal range category"
+tide = increasing, high, decreasing, low
+tide8 = increasing low, increasing mid, increasing high, high, decreasing low, etc..
+dlows = "Tidal low"
+dhighs = "Tidal high"
+dinequality = "Tidal inequality"
+slopes = "Rate of change in tide height"
+hr = hour of the day (0-23)
+cond = conductivity
+turb = turbidity
+domgl = dissolved oxygen
+temp = temperature
+ill = % disk illumination
+Twilight = Day vs. night vs. twilight categories
+inchannel = proportion of time in each day with in-channel flows (=there was water)
+dewater = proportion of time in each day dewatered
+
+
+(3) After running this script, open up the "Colombano AWS model check" .Rmd to 
+interrogate the models using LOO, posterior predictive checks, and coefficients.
+
+
+# Load packages
+```{r setup, include=FALSE}
+install.packages(c("brms", "loo"))
+
+library(tidyverse)
+library(lubridate)
+
+library(brms)
+library(broom)
+library(bayesplot)
+library(modelr)
+library(loo)
+
+library(rstan)
+library(StanHeaders)
+library(parallel)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores(), loo.cores = parallel::detectCores())
+getOption("mc.cores", "loo.cores")
+```
+
+# import data
+
+## twilight
+```{r}
+twilight <- read_csv("Data/Ch2_Twilight_full_dataset.csv") %>% 
+  rename(Twilight=Status3) %>% 
+  select(datetime15_std, Twilight)
+View(twilight)
+```
+
+
+## inchannel flows
+```{r}
+inchannel <- read_csv("Data/Ch2_Channel_dewatering_events.csv") %>% select(Date, Overtop_perc, Dewater_perc, Inchannel_perc) %>% 
+  rename(overtop=Overtop_perc, dewater=Dewater_perc, inchannel=Inchannel_perc)
+View(inchannel)
+```
+
+
+# Set priors
+```{r}
+#brms::get_prior() used for prior specification
+
+# Splittail priors
+# null models
+priors0_st <- c(set_prior("normal(0.5, 1)", class = "Intercept") ,
+            set_prior("normal(0, 1)", class = "b") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi") ,
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+
+# no spline
+priors_nospline_st <- c(set_prior("normal(0.5, 1)", class = "Intercept") ,
+            set_prior("normal(0, 1)", class = "b") ,
+            set_prior("normal(0, 1)", class = "sd") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi"),
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+
+# spline
+priors_st <- c(set_prior("normal(0.5, 1)", class = "Intercept") ,
+            set_prior("normal(0, 1)", class = "b") ,
+            set_prior("normal(0, 1)", class = "sd") ,
+            set_prior("normal(0, 1)", class = "sds") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi"),
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+
+
+# Striped bass priors
+# null models
+priorsnull_sb <- c(set_prior("normal(0.3, 1)", class = "Intercept") ,
+            set_prior("logistic(0, 1)", class = "b") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi") ,
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+
+priors0_sb <- c(set_prior("normal(0.3, 1)", class = "Intercept") ,
+            set_prior("normal(0, 1)", class = "b") ,
+            set_prior("normal(0, 1)", class = "sd") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi") ,
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+
+# no spline
+priors_nospline_sb <- c(set_prior("normal(0.3, 1)", class = "Intercept") ,
+            set_prior("normal(0, 1)", class = "b") ,
+            set_prior("normal(0, 1)", class = "sd") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi"),
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+
+# spline
+priors_sb <- c(set_prior("normal(0.3, 1)", class = "Intercept") ,
+            set_prior("normal(0, 1)", class = "b") ,
+            set_prior("normal(0, 1)", class = "sd") ,
+            set_prior("normal(0, 1)", class = "sds") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi"),
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+
+
+# Tule perch priors
+# null models
+priors0_tp <- c(set_prior("normal(0.6, 1)", class = "Intercept") ,
+            set_prior("normal(0, 1)", class = "b") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi") ,
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+
+# no spline
+priors_nospline_tp <- c(set_prior("normal(0.6, 1)", class = "Intercept") ,
+            set_prior("normal(0, 1)", class = "b") ,
+            set_prior("normal(0, 1)", class = "sd") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi"),
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+
+# spline
+priors_tp <- c(set_prior("normal(0.6, 1)", class = "Intercept") ,
+            set_prior("normal(0, 1)", class = "b") ,
+            set_prior("normal(0, 1)", class = "sd") ,
+            set_prior("normal(0, 1)", class = "sds") ,
+            set_prior("logistic(0, 1)", class = "b", dpar = "zi"),
+            set_prior("logistic(0, 1)", class = "Intercept", dpar= "zi"))
+```
+
+# Splittail
+```{r}
+d_splittail <- read_csv("Data/Ch2_splittail_subsample_redo_mnth_yr.csv") %>% 
+  arrange(datetime15_std) %>% 
+  select(-X, -X1, -X1_1)
+
+d <- d_splittail %>% 
+  left_join(twilight, by="datetime15_std") %>% 
+  left_join(inchannel, by="Date") 
+
+summary(d)
+
+# Re-calculate predictor variables by centering them (denoted with "s")
+d$stages <- d$stage - mean(d$stage)
+d$dranges <- d$drange - mean(d$drange)
+d$dinequalitys <- d$dinequality - mean(d$dinequality)
+d$dlows <- d$dlow - mean(d$dlow)
+d$dhighs <- d$dhigh - mean(d$dhigh)
+d$slopes <- d$slope - mean(d$slope)
+d$ills <- d$illumination - mean(d$illumination)
+d$overtops <- d$overtop - mean(d$overtop)
+d$dewaters <- d$dewater - mean(d$dewater)
+d$inchannels <- d$inchannel - mean(d$inchannel)
+
+# create a dummy variable for high water levels and for overtopping events
+# that could potentially inflate zeros
+#d <- d %>% 
+ # mutate(overtopcat=ifelse(stage>2.65, 1, 0), highwater=ifelse(stage>2.0,1,0))
+
+# factors
+d$Yr <- factor(d$Yr)
+d$PIT <- factor(d$ID)
+d$drangecat3 <- factor(d$drangecat3)
+d$tide <- factor(d$tide)
+d$tide8 <- factor(d$tide8)
+d$Mo <- d$mnth # for time-series
+d$mnth <- factor(d$mnth) # for random effect
+d$phase4 <- factor(d$phase4)
+d$phase8 <- factor(d$phase8)
+d$highwater <- factor(d$highwater)
+d$overtopcat <- factor(d$overtopcat)
+d$Twilight <- factor(d$Twilight)
+
+# filter out depths less than 0.9m when channel becomes dewatered
+# and z-score transform stage values to remove effect of month
+d <- d %>% 
+  filter(stage>0.9) %>% 
+  group_by(mnth) %>% 
+  mutate(stage_z=(stage - mean(stage))/sd(stage),
+         cond_z=(cond - mean(cond))/ sd(cond),
+         temp_z=(temp - mean(temp))/ sd(temp),
+         turb_z=(turb - mean(turb))/ sd(turb),
+         domgl_z=(domgl - mean(domgl))/ sd(domgl)) %>% 
+  ungroup()
+
+# calculate the number of minutes that the power unit was off
+# because then the values are >0 and can be log-transformed
+# add 0.001 to make it positive
+d$minoff2 <- d$minoff + 0.001
+d$logmin <- log(d$minoff2)
+
+View(d)
+
+# calculate log of detection efficiency as zero-generating process
+d$deteff <- d$efficiency
+d$logdet <- log(d$deteff)
+
+summary(d)
+
+d$datetime15_std <- ymd_hms(d$datetime15_std,tz="America/Los_Angeles")
+d$hr <- hour(d$datetime15_std)
+
+dst <- d
+View(dst)
+summary(dst)
+```
+
+
+
+# null models
+
+## model 00
+```{r}
+d00st <- dst %>% select(detections, logdays, logmin, logdet, PIT)
+   
+
+bf00st <- bf(detections ~ logdays + logmin + logdet +
+               (1 | PIT) ,
+            zi ~ logdays + logmin + logdet)
+
+# this shows me that the logistic distribution can be helpful for the zi priors
+#get_prior(bf00st, data=d00st, family="zero_inflated_poisson")
+
+model00st <- brm(bf00st,
+                data = d00st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                prior = priors0_st,
+                sample_prior = TRUE,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model00st <- add_criterion(model00st, "loo")
+
+model00st %>% saveRDS("Models/Splittail/brms_zip_00st_subset.rds")
+
+summary(model00st)
+marginal_effects(model00st)
+```
+
+## model 0
+```{r}
+d0st <- dst %>% select(detections, logdays, logmin, logdet, PIT, mnth)  
+
+bf0st <- bf(detections ~ logdays + logmin + logdet +
+              (1 | PIT) + (1 | mnth),
+            zi ~ logdays + logmin + logdet)
+
+model0st <- brm(bf0st,
+                data = d0st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                prior = priors_nospline_st,
+                sample_prior = TRUE,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model0st <- add_criterion(model0st, "loo")
+
+model0st %>% saveRDS("Models/Splittail/brms_zip_0st_subset.rds")
+
+summary(model0st)
+marginal_effects(model0st)
+```
+
+# Tide models
+## model 1 - stage
+```{r}
+d1st <- dst %>% select(stage_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf1st <- bf(detections ~ logdays + logmin + logdet + s(stage_z, k=5) + 
+              (1 | PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model1st <- brm(bf1st,
+                data = d1st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                prior = priors_st,
+                sample_prior = TRUE,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model1st <- add_criterion(model1st, "loo")
+
+model1st %>% saveRDS("Models/Splittail/brms_zip_1st_subset.rds")
+
+summary(model1st)
+marginal_smooths(model1st)
+```
+
+## model 2 - drange
+```{r}
+d2st <- dst %>% select(dranges, detections, logdays, logmin, logdet, PIT)  
+
+bf2st <- bf(detections ~ logdays + logmin + logdet + s(dranges, k=5) +
+              (1 | PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model2st <- brm(bf2st,
+                data = d2st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                prior = priors_st,
+                sample_prior = TRUE,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model2st <- add_criterion(model2st, "loo")
+
+model2st %>% saveRDS("Models/Splittail/brms_zip_2st_subset.rds")
+
+summary(model2st)
+marginal_smooths(model2st)
+```
+
+## model 3 - drangecat
+```{r}
+d3st <- dst %>% select(drangecat3, detections, logdays, logmin, logdet, mnth, PIT)  
+
+bf3st <- bf(detections ~ logdays + logmin + logdet + drangecat3 + 
+              (1 | PIT) + (1 | mnth),
+            zi ~ logmin + logdays + logdet)
+
+model3st <- brm(bf3st,
+                data = d3st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                prior = priors_nospline_st,
+                sample_prior = TRUE,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model3st <- add_criterion(model3st, "loo")
+
+model3st %>% saveRDS("Models/Splittail/brms_zip_3st_subset.rds")
+
+summary(model3st)
+marginal_effects(model3st)
+```
+
+## model 4 - tide
+```{r}
+d4st <- dst %>% select(tide, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf4st <- bf(detections ~ logdays + logmin + logdet + tide +
+              (1 | PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model4st <- brm(bf4st,
+                data = d4st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model4st <- add_criterion(model4st, "loo")
+
+model4st %>% saveRDS("Models/Splittail/brms_zip_4st_subset.rds")
+
+summary(model4st)
+marginal_effects(model4st)
+```
+
+## model 5 - tide8
+```{r}
+d5st <- dst %>% select(tide8, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf5st <- bf(detections ~ logdays + logmin + logdet + tide8 +
+              (1 | PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model5st <- brm(bf5st,
+                data = d5st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model5st <- add_criterion(model5st, "loo")
+
+model5st %>% saveRDS("Models/Splittail/brms_zip_5st_subset.rds")
+
+summary(model5st)
+marginal_effects(model5st)
+```
+
+## model 6 - dlows
+```{r}
+d6st <- dst %>% select(dlows, detections, logdays, logmin, logdet, PIT)  
+
+bf6st <- bf(detections ~ logdays + logmin + logdet + s(dlows, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model6st <- brm(bf6st,
+                data = d6st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model6st <- add_criterion(model6st, "loo")
+
+model6st %>% saveRDS("Models/Splittail/brms_zip_6st_subset.rds")
+
+summary(model6st)
+marginal_smooths(model6st)
+```
+
+## model 7 - dhighs
+```{r}
+d7st <- dst %>% select(dhighs, detections, logdays, logmin, logdet, PIT)  
+
+bf7st <- bf(detections ~ logdays + logmin + logdet + s(dhighs, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model7st <- brm(bf7st,
+                data = d7st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model7st <- add_criterion(model7st, "loo")
+
+model7st %>% saveRDS("Models/Splittail/brms_zip_7st_subset.rds")
+
+summary(model7st)
+marginal_smooths(model7st)
+```
+
+## model 8 - dinequalitys
+```{r}
+d8st <- dst %>% select(dinequalitys, detections, logdays, logmin, logdet, PIT)  
+
+bf8st <- bf(detections ~ logdays + logmin + logdet + s(dinequalitys, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model8st <- brm(bf8st,
+                data = d8st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model8st <- add_criterion(model8st, "loo")
+
+model8st %>% saveRDS("Models/Splittail/brms_zip_8st_subset.rds")
+
+summary(model8st)
+marginal_smooths(model8st)
+```
+
+## model 9 - slopes
+```{r}
+d9st <- dst %>% select(slopes, detections, logdays, logmin, logdet, PIT)  
+
+bf9st <- bf(detections ~ logdays + logmin + logdet + s(slopes, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model9st <- brm(bf9st,
+                data = d9st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model9st <- add_criterion(model9st, "loo")
+
+model9st %>% saveRDS("Models/Splittail/brms_zip_9st_subset.rds")
+
+summary(model9st)
+marginal_smooths(model9st)
+```
+
+## model 10 - hr
+```{r}
+d10st <- dst %>% select(hr, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf10st <- bf(detections ~ logdays + logmin + logdet + s(hr, bs="cc", k=12) +
+              (1| PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model10st <- brm(bf10st,
+                data = d10st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model10st <- add_criterion(model10st, "loo")
+
+model10st %>% saveRDS("Models/Splittail/brms_zip_10st_subset.rds")
+
+summary(model10st)
+marginal_smooths(model10st)
+```
+
+
+# Water quality models
+
+## model 11 - cond
+```{r}
+d11st <- dst %>% select(cond_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf11st <- bf(detections ~ logdays + logmin + logdet + s(cond_z, k=5) +
+               (1| PIT) + (1|mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model11st <- brm(bf11st,
+                data = d11st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model11st <- add_criterion(model11st, "loo")
+
+model11st %>% saveRDS("Models/Splittail/brms_zip_11st_subset.rds")
+
+summary(model11st)
+marginal_smooths(model11st)
+```
+
+## model 12 - turb
+```{r}
+d12st <- dst %>% select(turb_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf12st <- bf(detections ~ logdays + logmin + logdet + s(turb_z, k=5) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model12st <- brm(bf12st,
+                data = d12st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model12st <- add_criterion(model12st, "loo")
+
+model12st %>% saveRDS("Models/Splittail/brms_zip_12st_subset.rds")
+
+summary(model12st)
+marginal_smooths(model12st)
+```
+
+## model 13 - domgl
+```{r}
+d13st <- dst %>% select(domgl_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf13st <- bf(detections ~ logdays + logmin + logdet + s(domgl_z, k=10) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model13st <- brm(bf13st,
+                data = d13st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model13st <- add_criterion(model13st, "loo")
+
+model13st %>% saveRDS("Models/Splittail/brms_zip_13st_subset.rds")
+
+summary(model13st)
+marginal_smooths(model13st)
+```
+
+## model 14 - temp
+```{r}
+d14st <- dst %>% select(temp_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf14st <- bf(detections ~ logdays + logmin + logdet + s(temp_z, k=10) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model14st <- brm(bf14st,
+                data = d14st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model14st <- add_criterion(model14st, "loo")
+
+model14st %>% saveRDS("Models/Splittail/brms_zip_14st_subset.rds")
+
+summary(model14st)
+marginal_smooths(model14st)
+```
+
+## model 15 - ill
+```{r}
+d15st <- dst %>% select(ills, detections, mnth, logdays, logmin, logdet, PIT)
+   
+
+bf15st <- bf(detections ~ logdays + logmin + logdet + s(ills, k=5) +
+              (1| PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model15st <- brm(bf15st,
+                data = d15st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model15st <- add_criterion(model15st, "loo")
+
+model15st %>% saveRDS("Models/Splittail/brms_zip_15st_subset.rds")
+
+summary(model15st)
+marginal_smooths(model15st)
+```
+
+## model 16 - Day- nt- twilight
+```{r}
+d16st <- dst %>% select(Twilight, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf16st <- bf(detections ~ logdays + logmin + logdet + Twilight +
+              (1| PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model16st <- brm(bf16st,
+                data = d16st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model16st <- add_criterion(model16st, "loo")
+
+model16st %>% saveRDS("Models/Splittail/brms_zip_16st_subset.rds")
+
+summary(model16st)
+marginal_effects(model16st)
+```
+
+## model 17 - inchannel
+```{r}
+d17st <- dst %>% select(inchannels, detections, logdays, logmin, logdet, PIT)  
+
+bf17st <- bf(detections ~ logdays + logmin + logdet + s(inchannels, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model17st <- brm(bf17st,
+                data = d17st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model17st <- add_criterion(model17st, "loo")
+
+model17st %>% saveRDS("Models/Splittail/brms_zip_17st_subset.rds")
+
+summary(model17st)
+marginal_smooths(model17st)
+```
+
+## model 18 - dewater
+```{r}
+d18st <- dst %>% select(dewaters, detections, logdays, logmin, logdet, PIT)  
+
+bf18st <- bf(detections ~ logdays + logmin + logdet + s(dewaters, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model18st <- brm(bf18st,
+                data = d18st,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_st,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model18st <- add_criterion(model18st, "loo")
+
+model18st %>% saveRDS("Models/Splittail/brms_zip_18st_subset.rds")
+
+summary(model18st)
+marginal_smooths(model18st)
+```
+
+
+
+# Striped bass
+```{r}
+rm(d, dst)
+
+d_striper <- read_csv("Data/Ch2_striper_subsample_redo_mnth_yr.csv") %>%
+  arrange(datetime15_std) %>% 
+  select(-X, -X1, -X1_1)
+
+d2 <- d_striper %>% 
+  left_join(twilight, by="datetime15_std") %>% 
+  left_join(inchannel, by="Date") %>% 
+  mutate(slope=ifelse(is.na(slope), 6.24, slope)) # imputed value from mice package
+
+d <- d2
+
+# Re-calculate predictor variables by centering them (not standardizing)
+d$stages <- d$stage - mean(d$stage)
+d$dranges <- d$drange - mean(d$drange)
+d$dinequalitys <- d$dinequality - mean(d$dinequality)
+d$dlows <- d$dlow - mean(d$dlow)
+d$dhighs <- d$dhigh - mean(d$dhigh)
+d$slopes <- d$slope - mean(d$slope)
+d$ills <- d$illumination - mean(d$illumination)
+d$overtops <- d$overtop - mean(d$overtop)
+d$dewaters <- d$dewater - mean(d$dewater)
+d$inchannels <- d$inchannel - mean(d$inchannel)
+
+# create a dummy variable for high water levels and for overtopping events
+# that could potentially inflate zeros
+#d <- d %>% 
+ # mutate(overtopcat=ifelse(stage>2.65, 1, 0), highwater=ifelse(stage>2.0,1,0))
+
+# factors
+d$Yr <- factor(d$Yr)
+d$PIT <- factor(d$ID)
+d$drangecat3 <- factor(d$drangecat3)
+d$tide <- factor(d$tide)
+d$tide8 <- factor(d$tide8)
+d$Mo <- d$mnth # for time-series
+d$mnth <- factor(d$mnth) # for random effect
+d$phase4 <- factor(d$phase4)
+d$phase8 <- factor(d$phase8)
+d$highwater <- factor(d$highwater)
+d$overtopcat <- factor(d$overtopcat)
+d$Twilight <- factor(d$Twilight)
+
+# filter out depths less than 0.9m when channel becomes dewatered
+# and z-score transform stage values
+d <- d %>% 
+  filter(stage>0.9) %>% 
+  group_by(mnth) %>% 
+  mutate(stage_z=(stage - mean(stage))/sd(stage),
+         cond_z=(cond - mean(cond))/ sd(cond),
+         temp_z=(temp - mean(temp))/ sd(temp),
+         turb_z=(turb - mean(turb))/ sd(turb),
+         domgl_z=(domgl - mean(domgl))/ sd(domgl)) %>% 
+  ungroup()
+
+# calculate the number of minutes that the power unit was off
+# because then the values are >0 and can be log-transformed
+# add 0.001 to make it positive
+d$minoff2 <- d$minoff + 0.001
+d$logmin <- log(d$minoff2)
+
+View(d)
+
+# calculate log of detection efficiency as zero-generating process
+d$deteff <- d$efficiency
+d$logdet <- log(d$deteff)
+
+summary(d)
+
+d$datetime15_std <- ymd_hms(d$datetime15_std,tz="America/Los_Angeles")
+d$hr <- hour(d$datetime15_std)
+
+dsb <- d
+```
+
+
+# null models
+
+## model 00
+```{r}
+d00sb <- dsb %>% select(detections, logdays, logmin, logdet, PIT)
+   
+
+bf00sb <- bf(detections ~ logdays + logmin + logdet +
+               (1 | PIT) ,
+            zi ~ logdays + logmin + logdet)
+
+model00sb <- brm(bf00sb,
+                data = d00sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors0_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model00sb <- add_criterion(model00sb, "loo")
+
+model00sb %>% saveRDS("Models/Striper/brms_zip_00sb_subset.rds")
+
+summary(model00sb)
+marginal_effects(model00sb)
+```
+
+## model 0
+```{r}
+d0sb <- dsb %>% select(detections, logdays, logmin, logdet, PIT, mnth)
+   
+
+bf0sb <- bf(detections ~ logdays + logmin + logdet +
+              (1 | PIT) + (1 | mnth),
+            zi ~ logdays + logmin + logdet)
+
+model0sb <- brm(bf0sb,
+                data = d0sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors0_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model0sb <- add_criterion(model0sb, "loo")
+
+model0sb %>% saveRDS("Models/Striper/brms_zip_0sb_subset.rds")
+
+summary(model0sb)
+marginal_effects(model0sb)
+```
+
+# Tide models
+## model 1 - stage
+```{r}
+d1sb <- dsb %>% select(stage_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf1sb <- bf(detections ~ logdays + logmin + logdet + s(stage_z, k=5) + 
+              (1 | PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model1sb <- brm(bf1sb,
+                data = d1sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24, 
+                iter = 4000, warmup = 1000,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model1sb <- add_criterion(model1sb, "loo")
+
+model1sb %>% saveRDS("Models/Striper/brms_zip_1sb_subset.rds")
+
+summary(model1sb)
+marginal_smooths(model1sb)
+```
+
+## model 2 - drange
+```{r}
+d2sb <- dsb %>% select(dranges, detections, logdays, logmin, logdet, PIT)  
+
+bf2sb <- bf(detections ~ logdays + logmin + logdet + s(dranges, k=5) +
+              (1 | PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model2sb <- brm(bf2sb,
+                data = d2sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model2sb <- add_criterion(model2sb, "loo")
+
+model2sb %>% saveRDS("Models/Striper/brms_zip_2sb_subset.rds")
+
+summary(model2sb)
+marginal_smooths(model2sb)
+```
+
+## model 3 - drangecat
+```{r}
+d3sb <- dsb %>% select(drangecat3, mnth, detections, logdays, logmin, logdet, PIT)  
+
+bf3sb <- bf(detections ~ logdays + logmin + logdet + drangecat3 + 
+              (1 | PIT) + (1 | mnth),
+            zi ~ logmin + logdays + logdet)
+
+model3sb <- brm(bf3sb,
+                data = d3sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model3sb <- add_criterion(model3sb, "loo")
+
+model3sb %>% saveRDS("Models/Striper/brms_zip_3sb_subset.rds")
+
+summary(model3sb)
+marginal_effects(model3sb)
+```
+
+## model 4 - tide
+```{r}
+d4sb <- dsb %>% select(tide, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf4sb <- bf(detections ~ logdays + logmin + logdet + tide +
+              (1 | PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model4sb <- brm(bf4sb,
+                data = d4sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model4sb <- add_criterion(model4sb, "loo")
+
+model4sb %>% saveRDS("Models/Striper/brms_zip_4sb_subset.rds")
+
+summary(model4sb)
+marginal_effects(model4sb)
+```
+
+## model 5 - tide8
+```{r}
+d5sb <- dsb %>% select(tide8, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf5sb <- bf(detections ~ logdays + logmin + logdet + tide8 +
+              (1 | PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model5sb <- brm(bf5sb,
+                data = d5sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model5sb <- add_criterion(model5sb, "loo")
+
+model5sb %>% saveRDS("Models/Striper/brms_zip_5sb_subset.rds")
+```
+
+## model 6 - dlows
+```{r}
+d6sb <- dsb %>% select(dlows, detections, logdays, logmin, logdet, PIT)  
+
+bf6sb <- bf(detections ~ logdays + logmin + logdet + s(dlows, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model6sb <- brm(bf6sb,
+                data = d6sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model6sb <- add_criterion(model6sb, "loo")
+
+model6sb %>% saveRDS("Models/Striper/brms_zip_6sb_subset.rds")
+
+summary(model6sb)
+marginal_smooths(model6sb)
+```
+
+## model 7 - dhighs
+```{r}
+d7sb <- dsb %>% select(dhighs, detections, logdays, logmin, logdet, PIT)  
+
+bf7sb <- bf(detections ~ logdays + logmin + logdet + s(dhighs, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model7sb <- brm(bf7sb,
+                data = d7sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model7sb <- add_criterion(model7sb, "loo")
+
+model7sb %>% saveRDS("Models/Striper/brms_zip_7sb_subset.rds")
+
+summary(model7sb)
+marginal_smooths(model7sb)
+```
+
+## model 8 - dinequalitys
+```{r}
+d8sb <- dsb %>% select(dinequalitys, detections, logdays, logmin, logdet, PIT)  
+
+bf8sb <- bf(detections ~ logdays + logmin + logdet + s(dinequalitys, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model8sb <- brm(bf8sb,
+                data = d8sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model8sb <- add_criterion(model8sb, "loo")
+
+model8sb %>% saveRDS("Models/Striper/brms_zip_8sb_subset.rds")
+
+summary(model8sb)
+marginal_smooths(model8sb)
+```
+
+## model 9 - slopes
+```{r}
+d9sb <- dsb %>% select(slopes, detections, logdays, logmin, logdet, PIT)  
+
+bf9sb <- bf(detections ~ logdays + logmin + logdet + s(slopes, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model9sb <- brm(bf9sb,
+                data = d9sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model9sb <- add_criterion(model9sb, "loo")
+
+model9sb %>% saveRDS("Models/Striper/brms_zip_9sb_subset.rds")
+
+summary(model9sb)
+marginal_smooths(model9sb)
+```
+
+## model 10 - hr
+```{r}
+d10sb <- dsb %>% select(hr, detections, logdays, logmin, logdet, PIT)  
+
+bf10sb <- bf(detections ~ logdays + logmin + logdet + s(hr, bs="cc", k=12) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model10sb <- brm(bf10sb,
+                data = d10sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model10sb <- add_criterion(model10sb, "loo")
+
+model10sb %>% saveRDS("Models/Striper/brms_zip_10sb_subset.rds")
+
+summary(model10sb)
+marginal_smooths(model10sb)
+```
+
+
+# Water quality models
+
+## model 11 - cond
+```{r}
+d11sb <- dsb %>% select(cond_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf11sb <- bf(detections ~ logdays + logmin + logdet + s(cond_z, k=5) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model11sb <- brm(bf11sb,
+                data = d11sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model11sb <- add_criterion(model11sb, "loo")
+
+model11sb %>% saveRDS("Models/Striper/brms_zip_11sb_subset.rds")
+
+summary(model11sb)
+marginal_smooths(model11sb)
+```
+
+## model 12 - turb
+```{r}
+d12sb <- dsb %>% select(turb_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf12sb <- bf(detections ~ logdays + logmin + logdet + s(turb_z, k=5) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model12sb <- brm(bf12sb,
+                data = d12sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model12sb <- add_criterion(model12sb, "loo")
+
+model12sb %>% saveRDS("Models/Striper/brms_zip_12sb_subset.rds")
+
+summary(model12sb)
+marginal_smooths(model12sb)
+```
+
+## model 13 - domgl
+```{r}
+d13sb <- dsb %>% select(domgl_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf13sb <- bf(detections ~ logdays + logmin + logdet + s(domgl_z, k=5) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model13sb <- brm(bf13sb,
+                data = d13sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model13sb <- add_criterion(model13sb, "loo")
+
+model13sb %>% saveRDS("Models/Striper/brms_zip_13sb_subset.rds")
+
+summary(model13sb)
+marginal_smooths(model13sb)
+```
+
+## model 14 - temp
+```{r}
+d14sb <- dsb %>% select(temp_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf14sb <- bf(detections ~ logdays + logmin + logdet + s(temp_z, k=5) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model14sb <- brm(bf14sb,
+                data = d14sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model14sb <- add_criterion(model14sb, "loo")
+
+model14sb %>% saveRDS("Models/Striper/brms_zip_14sb_subset.rds")
+
+summary(model14sb)
+marginal_smooths(model14sb)
+```
+
+## model 15 - ill
+```{r}
+d15sb <- dsb %>% select(ills, detections, logdays, logmin, logdet, PIT)
+
+bf15sb <- bf(detections ~ logdays + logmin + logdet + s(ills, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model15sb <- brm(bf15sb,
+                data = d15sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model15sb <- add_criterion(model15sb, "loo")
+
+model15sb %>% saveRDS("Models/Striper/brms_zip_15sb_subset.rds")
+
+summary(model15sb)
+marginal_smooths(model15sb)
+```
+
+## model 16 - Day- nt- twilight
+```{r}
+d16sb <- dsb %>% select(Twilight, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf16sb <- bf(detections ~ logdays + logmin + logdet + Twilight +
+              (1| PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model16sb <- brm(bf16sb,
+                data = d16sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model16sb <- add_criterion(model16sb, "loo")
+
+model16sb %>% saveRDS("Models/Striper/brms_zip_16sb_subset.rds")
+
+summary(model16sb)
+marginal_effects(model16sb)
+```
+
+
+## model 17 - inchannel
+```{r}
+d17sb <- dsb %>% select(inchannels, detections, logdays, logmin, logdet, PIT)  
+
+bf17sb <- bf(detections ~ logdays + logmin + logdet + s(inchannels, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model17sb <- brm(bf17sb,
+                data = d17sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model17sb <- add_criterion(model17sb, "loo")
+
+model17sb %>% saveRDS("Models/Striper/brms_zip_17sb_subset.rds")
+
+summary(model17sb)
+marginal_smooths(model17sb)
+```
+
+## model 18 - dewater
+```{r}
+d18sb <- dsb %>% select(dewaters, detections, logdays, logmin, logdet, PIT)  
+
+bf18sb <- bf(detections ~ logdays + logmin + logdet + s(dewaters, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model18sb <- brm(bf18sb,
+                data = d18sb,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_sb,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model18sb <- add_criterion(model18sb, "loo")
+
+model18sb %>% saveRDS("Models/Striper/brms_zip_18sb_subset.rds")
+
+summary(model18sb)
+marginal_smooths(model18sb)
+```
+
+
+
+# Tule perch
+```{r}
+rm(d)
+
+d_tuleperch <- read_csv("Data/Ch2_tuleperch_subsample_redo_mnth_yr.csv") %>% 
+  arrange(datetime15_std) %>% 
+  filter(!is.na(temp)) # remove two detections where no sonde data
+
+d3 <- d_tuleperch %>% 
+  left_join(twilight, by="datetime15_std") %>% 
+  left_join(inchannel, by="Date") %>% 
+  mutate(slope=ifelse(is.na(slope), 6.24, slope)) # imputed value
+
+summary(d3)
+
+d <- d3
+
+# Re-calculate predictor variables by centering them (not standardizing)
+d$stages <- d$stage - mean(d$stage)
+d$dranges <- d$drange - mean(d$drange)
+d$dinequalitys <- d$dinequality - mean(d$dinequality)
+d$dlows <- d$dlow - mean(d$dlow)
+d$dhighs <- d$dhigh - mean(d$dhigh)
+d$slopes <- d$slope - mean(d$slope)
+d$ills <- d$illumination - mean(d$illumination)
+d$overtops <- d$overtop - mean(d$overtop)
+d$dewaters <- d$dewater - mean(d$dewater)
+d$inchannels <- d$inchannel - mean(d$inchannel)
+
+# create a dummy variable for high water levels and for overtopping events
+# that could potentially inflate zeros and/or be a cue for fish somehow
+d <- d %>% 
+  mutate(overtopcat=ifelse(stage>2.65, 1, 0), highwater=ifelse(stage>2.0,1,0))
+
+# factors
+d$Yr <- factor(d$Yr)
+d$PIT <- factor(d$ID)
+d$drangecat3 <- factor(d$drangecat3)
+d$tide <- factor(d$tide)
+d$tide8 <- factor(d$tide8)
+d$Mo <- d$mnth # for time-series
+d$mnth <- factor(d$mnth) # for random effect
+d$phase4 <- factor(d$phase4)
+d$phase8 <- factor(d$phase8)
+d$highwater <- factor(d$highwater)
+d$overtopcat <- factor(d$overtopcat)
+d$Twilight <- factor(d$Twilight)
+
+# filter out depths less than 0.9m when channel becomes dewatered
+# and z-score transform stage values
+d <- d %>% 
+  filter(stage>0.9) %>% 
+  group_by(mnth) %>% 
+  mutate(stage_z=(stage - mean(stage))/sd(stage),
+         cond_z=(cond - mean(cond))/ sd(cond),
+         temp_z=(temp - mean(temp))/ sd(temp),
+         turb_z=(turb - mean(turb))/ sd(turb),
+         domgl_z=(domgl - mean(domgl))/ sd(domgl)) %>% 
+  ungroup()
+
+# calculate the number of minutes that the power unit was off
+# because then the values are >0 and can be log-transformed
+# add 0.001 to make it positive
+d$minoff2 <- d$minoff + 0.001
+d$logmin <- log(d$minoff2)
+
+View(d)
+
+# calculate log of detection efficiency as zero-generating process
+d$deteff <- d$efficiency
+d$logdet <- log(d$deteff)
+
+summary(d)
+
+d$datetime15_std <- ymd_hms(d$datetime15_std,tz="America/Los_Angeles")
+d$hr <- hour(d$datetime15_std)
+
+dtp <- d
+```
+
+
+# null models
+
+## model 00
+```{r}
+d00tp <- dtp %>% select(detections, logdays, logmin, logdet, PIT)
+   
+
+bf00tp <- bf(detections ~ logdays + logmin + logdet +
+               (1 | PIT) ,
+            zi ~ logdays + logmin + logdet)
+
+model00tp <- brm(bf00tp,
+                data = d00tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors0_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model00tp <- add_criterion(model00tp, "loo")
+
+model00tp %>% saveRDS("Models/Tuleperch/brms_zip_00tp_subset.rds")
+
+summary(model00tp)
+marginal_effects(model00tp)
+```
+
+## model 0
+```{r}
+d0tp <- dtp %>% select(detections, logdays, logmin, logdet, PIT, mnth)
+
+bf0tp <- bf(detections ~ logdays + logmin + logdet +
+              (1 | PIT) + (1 | mnth),
+            zi ~ logdays + logmin + logdet)
+
+model0tp <- brm(bf0tp,
+                data = d0tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors0_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model0tp <- add_criterion(model0tp, "loo")
+
+model0tp %>% saveRDS("Models/Tuleperch/brms_zip_0tp_subset.rds")
+
+summary(model0tp)
+marginal_effects(model0tp)
+```
+
+# Tide models
+## model 1 - stage
+```{r}
+d1tp <- dtp %>% select(stage_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf1tp <- bf(detections ~ logdays + logmin + logdet + s(stage_z, k=5) + 
+              (1 | PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model1tp <- brm(bf1tp,
+                data = d1tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model1tp <- add_criterion(model1tp, "loo")
+
+model1tp %>% saveRDS("Models/Tuleperch/brms_zip_1tp_subset.rds")
+
+summary(model1tp)
+marginal_smooths(model1tp)
+```
+
+## model 2 - drange
+```{r}
+d2tp <- dtp %>% select(dranges, detections, logdays, logmin, logdet, PIT)  
+
+bf2tp <- bf(detections ~ logdays + logmin + logdet + s(dranges, k=5) +
+              (1 | PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model2tp <- brm(bf2tp,
+                data = d2tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model2tp <- add_criterion(model2tp, "loo")
+
+model2tp %>% saveRDS("Models/Tuleperch/brms_zip_2tp_subset.rds")
+
+summary(model2tp)
+marginal_smooths(model2tp)
+```
+
+## model 3 - drangecat
+```{r}
+d3tp <- dtp %>% select(drangecat3, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf3tp <- bf(detections ~ logdays + logmin + logdet + drangecat3 + 
+              (1 | PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model3tp <- brm(bf3tp,
+                data = d3tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model3tp <- add_criterion(model3tp, "loo")
+
+model3tp %>% saveRDS("Models/Tuleperch/brms_zip_3tp_subset.rds")
+
+summary(model3tp)
+marginal_smooths(model3tp)
+```
+
+## model 4 - tide
+```{r}
+d4tp <- dtp %>% select(tide, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf4tp <- bf(detections ~ logdays + logmin + logdet + tide +
+              (1 | PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model4tp <- brm(bf4tp,
+                data = d4tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model4tp <- add_criterion(model4tp, "loo")
+
+model4tp %>% saveRDS("Models/Tuleperch/brms_zip_4tp_subset.rds")
+
+summary(model4tp)
+marginal_effects(model4tp)
+```
+
+## model 5 - tide8
+```{r}
+d5tp <- dtp %>% select(tide8, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf5tp <- bf(detections ~ logdays + logmin + logdet + tide8 +
+              (1 | PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model5tp <- brm(bf5tp,
+                data = d5tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model5tp <- add_criterion(model5tp, "loo")
+
+model5tp %>% saveRDS("Models/Tuleperch/brms_zip_5tp_subset.rds")
+
+summary(model5tp)
+marginal_smooths(model5tp)
+```
+
+## model 6 - dlows
+```{r}
+d6tp <- dtp %>% select(dlows, detections, logdays, logmin, logdet, PIT)  
+
+bf6tp <- bf(detections ~ logdays + logmin + logdet + s(dlows, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model6tp <- brm(bf6tp,
+                data = d6tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model6tp <- add_criterion(model6tp, "loo")
+
+model6tp %>% saveRDS("Models/Tuleperch/brms_zip_6tp_subset.rds")
+
+summary(model6tp)
+marginal_smooths(model6tp)
+```
+
+## model 7 - dhighs
+```{r}
+d7tp <- dtp %>% select(dhighs, detections, logdays, logmin, logdet, PIT)  
+
+bf7tp <- bf(detections ~ logdays + logmin + logdet + s(dhighs, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model7tp <- brm(bf7tp,
+                data = d7tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model7tp <- add_criterion(model7tp, "loo")
+
+model7tp %>% saveRDS("Models/Tuleperch/brms_zip_7tp_subset.rds")
+
+summary(model7tp)
+marginal_smooths(model7tp)
+```
+
+## model 8 - dinequalitys
+```{r}
+d8tp <- dtp %>% select(dinequalitys, detections, logdays, logmin, logdet, PIT)  
+
+bf8tp <- bf(detections ~ logdays + logmin + logdet + s(dinequalitys, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model8tp <- brm(bf8tp,
+                data = d8tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model8tp <- add_criterion(model8tp, "loo")
+
+model8tp %>% saveRDS("Models/Tuleperch/brms_zip_8tp_subset.rds")
+
+summary(model8tp)
+marginal_smooths(model8tp)
+```
+
+## model 9 - slopes
+```{r}
+d9tp <- dtp %>% select(slopes, detections, logdays, logmin, logdet, PIT)  
+
+bf9tp <- bf(detections ~ logdays + logmin + logdet + s(slopes, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model9tp <- brm(bf9tp,
+                data = d9tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model9tp <- add_criterion(model9tp, "loo")
+
+model9tp %>% saveRDS("Models/Tuleperch/brms_zip_9tp_subset.rds")
+
+summary(model9tp)
+marginal_smooths(model9tp)
+```
+
+## model 10 - hr
+```{r}
+d10tp <- dtp %>% select(hr, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf10tp <- bf(detections ~ logdays + logmin + logdet + s(hr, bs="cc", k=12) +
+              (1| PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model10tp <- brm(bf10tp,
+                data = d10tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model10tp <- add_criterion(model10tp, "loo")
+
+model10tp %>% saveRDS("Models/Tuleperch/brms_zip_10tp_subset.rds")
+
+summary(model10tp)
+marginal_smooths(model10tp)
+```
+
+
+# Water quality models
+
+## model 11 - cond
+```{r}
+d11tp <- dtp %>% select(cond_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf11tp <- bf(detections ~ logdays + logmin + logdet + s(cond_z, k=5) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model11tp <- brm(bf11tp,
+                data = d11tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model11tp <- add_criterion(model11tp, "loo")
+
+model11tp %>% saveRDS("Models/Tuleperch/brms_zip_11tp_subset.rds")
+
+summary(model11tp)
+marginal_smooths(model11tp)
+```
+
+## model 12 - turb
+```{r}
+d12tp <- dtp %>% select(turb_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf12tp <- bf(detections ~ logdays + logmin + logdet + s(turb_z, k=5) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model12tp <- brm(bf12tp,
+                data = d12tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model12tp <- add_criterion(model12tp, "loo")
+
+model12tp %>% saveRDS("Models/Tuleperch/brms_zip_12tp_subset.rds")
+
+summary(model12tp)
+marginal_smooths(model12tp)
+```
+
+## model 13 - domgl
+```{r}
+d13tp <- dtp %>% select(domgl_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf13tp <- bf(detections ~ logdays + logmin + logdet + s(domgl_z, k=5) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model13tp <- brm(bf13tp,
+                data = d13tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model13tp <- add_criterion(model13tp, "loo")
+
+model13tp %>% saveRDS("Models/Tuleperch/brms_zip_13tp_subset.rds")
+
+summary(model13tp)
+marginal_smooths(model13tp)
+```
+
+## model 14 - temp
+```{r}
+d14tp <- dtp %>% select(temp_z, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf14tp <- bf(detections ~ logdays + logmin + logdet + s(temp_z, k=5) +
+               (1| PIT) + (1| mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model14tp <- brm(bf14tp,
+                data = d14tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model14tp <- add_criterion(model14tp, "loo")
+
+model14tp %>% saveRDS("Models/Tuleperch/brms_zip_14tp_subset.rds")
+
+summary(model14tp)
+marginal_smooths(model14tp)
+```
+
+## model 15 - ill
+```{r}
+d15tp <- dtp %>% select(ills, detections, mnth, logdays, logmin, logdet, PIT)
+
+bf15tp <- bf(detections ~ logdays + logmin + logdet + s(ills, k=5) +
+              (1| PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model15tp <- brm(bf15tp,
+                data = d15tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model15tp <- add_criterion(model15tp, "loo")
+
+model15tp %>% saveRDS("Models/Tuleperch/brms_zip_15tp_subset.rds")
+
+summary(model15tp)
+marginal_effects(model15tp)
+```
+
+## model 16 - Day- nt- twilight
+```{r}
+d16tp <- dtp %>% select(Twilight, detections, mnth, logdays, logmin, logdet, PIT)  
+
+bf16tp <- bf(detections ~ logdays + logmin + logdet + Twilight +
+              (1| PIT) + (1 | mnth) ,
+            zi ~ logmin + logdays + logdet)
+
+model16tp <- brm(bf16tp,
+                data = d16tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_nospline_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model16tp <- add_criterion(model16tp, "loo")
+
+model16tp %>% saveRDS("Models/Tuleperch/brms_zip_16tp_subset.rds")
+
+summary(model16tp)
+marginal_effects(model16tp)
+```
+
+## model 17 - inchannel
+```{r}
+d17tp <- dtp %>% select(inchannels, detections, logdays, logmin, logdet, PIT)  
+
+bf17tp <- bf(detections ~ logdays + logmin + logdet + s(inchannels, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model17tp <- brm(bf17tp,
+                data = d17tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model17tp <- add_criterion(model17tp, "loo")
+
+model17tp %>% saveRDS("Models/Tuleperch/brms_zip_17tp_subset.rds")
+
+summary(model17tp)
+marginal_smooths(model17tp)
+```
+
+## model 18 - dewater
+```{r}
+d18tp <- dtp %>% select(dewaters, detections, logdays, logmin, logdet, PIT)  
+
+bf18tp <- bf(detections ~ logdays + logmin + logdet + s(dewaters, k=5) +
+              (1| PIT) ,
+            zi ~ logmin + logdays + logdet)
+
+model18tp <- brm(bf18tp,
+                data = d18tp,
+                family = zero_inflated_poisson(),
+                chains = 4, cores = 24,
+                iter = 4000, warmup = 1000,
+                sample_prior = TRUE,
+                prior = priors_tp,
+                control=list(adapt_delta=0.99, max_treedepth=15))
+
+model18tp <- add_criterion(model18tp, "loo")
+
+model18tp %>% saveRDS("Models/Tuleperch/brms_zip_18tp_subset.rds")
+
+summary(model18tp)
+marginal_smooths(model18tp)
+```
